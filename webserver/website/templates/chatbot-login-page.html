@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Chatbot Login Page</title>
+    
+    <link rel="stylesheet" href="/static/css/chatbot-login-page.css">
+
+    <!-- if the scripts are defined before the elements they access, you get NULL errors -->
+    <!-- use the keyword 'defer' to prevent this NULL error -->
+    <script src="/static/js/chatbot-login-page.js" defer></script>
+
+</head>
+
+
+
+<body>
+
+    <div class="login-container">
+        <h2 style="color: white; margin-top: 0; padding-top: 0; margin-bottom: 5%">Sign In</h2>
+        <form id="login-form">
+            <div class="input-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autocomplete="off">
+            </div>
+    
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+            <button type="submit" class="login-btn">Log In</button>
+        </form action="/chatbot/login-validation" method="POST">
+    </div>
+
+
+
+</body>
+
+</html>
+
+
+
+
