@@ -1,45 +1,25 @@
-import json, os, cv2
+import json, os, cv2, mistune, re
+from mistune.plugins.math import math
 from cv2_enumerate_cameras import enumerate_cameras
 from ollama import chat
+from datetime import datetime
+from flask import jsonify
+
 
 # appends the data to the end of the chatHistory.json. The input argument should be in the format of a json!
-def storeChatData(data, user):
+def storeChatData(data, user, chatName):
     # the first argument, the input data, should be in the form of a json: {"message": data}
-    from flask import jsonify
 
-    chat_count = 0
-    filePath = 'user-data/guest/chatHistory.json'
+    if not user:
+        user = 'guest'
 
-    # check for actual user (not guest--guest account has user=None)
-    if (user is not None):
-        filePath = 'user-data/' + user + '/chatHistory' + str(chat_count) + ".json"
-    
-    # check if the folder for the data exists
-    folder = os.path.dirname(filePath)
-    if not os.path.exists(folder):
-        os.mkdir(folder)
+    existingContents = getChatContents(user, chatName) # fetch existing chat history (creates the file if needed)
+    existingContents.append(data) # append user input/prompt to chat history (data is already a json object)
 
-    try:
-        # if the file exits, read and save its contents
-        if os.path.exists(filePath):
-            f = open(filePath, "r")
-            # when the contents are read, the result should be of type list
-            # when the file does not exist, we create an empty list and fill it with json objects, so the json should ALWAYS hold a list of json objects
-            try: 
-                existingContents = json.load(f) 
-                # if not isinstance(existingContents, list):
-                #     existingContents = []
-            except Exception as e:
-                print("Error reading stored chat history: " + str(e))
-                existingContents = []
-            f.close()
-        else: # otherwise, say its contents are empty
-            existingContents = [] # if the file does not exist, we will populate it with a list (of json objects--the message data)
-
-        # append new data to the end of the existing data
-        # existingContents = [existingContents, data]
-        existingContents.append(data)
-
+    filePath = 'user-data/' + user + '/' + chatName + '.json'
+    # print("File path to save to is: ", filePath)
+    try: 
+        # open the chat file and write the updated contents to it (replaces everything already inside)
         f = open(filePath, "w")
         json.dump(existingContents, f, indent=4)
         f.close()
@@ -48,12 +28,11 @@ def storeChatData(data, user):
         }), 200
     
     except Exception as e:
-        print("Failed to save chat history to JSON")
-        print(str(e))
+        print("Failed to save chat history to JSON: " + str(e))
         return jsonify({
             "status": "error",
             "message": str(e)
-        }), 500
+        }), 400
     
 
 # starts ollama process (ollama needs to be open to fetch available model names)
@@ -79,7 +58,7 @@ def openOllama():
 def getModelNames() -> list[str]:
     import ollama
 
-    openOllama() # ensure ollama process is running
+    # openOllama() # ensure ollama process is running
 
     list = ollama.list()
     models = []
@@ -90,7 +69,7 @@ def getModelNames() -> list[str]:
     return models
 
 
-def generateLLMResponse(user_input : str, model : str):
+def generateLLMResponse(user : str, user_input : str, model : str, chatName : str):
     # user_input = value of a json object (equal to a string)
     # model = value of a json object = string
 
@@ -105,14 +84,20 @@ def generateLLMResponse(user_input : str, model : str):
 
     # reconstruct a json object to hold all previous chat context
     messages = [{
-        "role":  "system", "content": "Be concise." # optional, (hard-coded) high-priority instruction
+        "role":  "system", "content": "Be concise. Respond in english only unless prompted." # optional, (hard-coded) high-priority instruction
     }]
 
 
+
     # fetch previous chat history and append it to the messages
-
-
-
+    if user:
+        prevContents = getChatContents(user, chatName)
+        if prevContents:
+            for prompt in prevContents:
+                messages.append({"role": "user", "content": prompt.get('message')})
+                messages.append({"role": "assistant", "content": prompt.get('response')})
+        # if prevContents:
+        #     messages.extend(prevContents) # this expands the list of messages using the previous chat contents (i.e. [{}, {}] + [{}, {}] = [{}, {}, {}, {}])
 
     # add current user prompt/input (should be added LAST so the model sees it 
     # as the question and not chat history)
@@ -132,18 +117,27 @@ def generateLLMResponse(user_input : str, model : str):
 
     return final_answer, reasoning
 
-
-
-
-def getUserChatHistory(user):
-    print("triggered get user data for: ", user)
-
-
+# this function should only be called with a valid user (and not a guest account)
+def getUserChatHeaders(user):
     # go to directory for user data:
     # /user-data/USERNAME/*.json --> all json files here are different chat histories
 
-    # for every json file inside of the directory, get the filename, and file contents
+    # NOTE: if you start the path with a slash, it is treated as an absolute path! Remove the starting slash for relative path!!!!
+    historyPath = 'user-data/' + user
+    existingFiles = os.listdir(historyPath)
 
+    chats = []
+
+    # for every file inside of the directory, get the filename if the file is not empty
+    for file in existingFiles:
+        filePath = os.path.join(historyPath, file)
+        
+        # if the current file (name) is actually a file (and not a folder/dir), and its not empty, append it to the list of chats
+        if os.path.isfile(filePath):
+            if os.path.getsize(filePath) > 0:
+                chats.append(file.split(".")[0])
+
+    return chats
 
     # the history should have the format of a json:
     # basically, one json object holding keys, chat0, chat1, chat2, ...(lets call it chat_i)
@@ -169,6 +163,95 @@ def getUserChatHistory(user):
     #     ]
     # }
 
+
+# fetches the contents of a specific chat for the given user. If the chat does not exist, a new (empty) chat history json is created
+def getChatContents(user : str, chatName : str):
+    # check if the folder exists, then check if the file exists
+    # if the file exists, read it and return the contents
+    # if the file does not exist, create it and return empty contents
+
+    if not user:
+        user = 'guest'
+
+    filePath = 'user-data/' + user + '/' + chatName + '.json'
+    
+    # check if the folder for the data exists, if it does not exist, make the directory (which would be the /user-data/USER child folder)
+    folder = os.path.dirname(filePath)
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+
+    # if the file exists, read its contents and return it
+    existingContents = []
+
+    # print("Checking contents of file: ", filePath)
+    if os.path.isfile(filePath) and os.path.getsize(filePath) > 0:
+        try:
+            f = open(filePath, 'r')
+            try:
+                existingContents = json.load(f)
+            except Exception as e:
+                print("Error loading json contents of file: " + str(e))
+                existingContents = []
+
+            if (not isinstance(existingContents, list)):
+                existingContents = []
+            f.close()
+
+        except Exception as e:
+            print("Error opening the file: " + str(e))
+            existingContents = []
+
+        return existingContents
+    
+
+    # otherwise, create the file and return empty contents
+    else:
+        try:
+            # open the file with write perms (this creates the file if it does not exist), then immediately close it
+            f = open(filePath, 'w')
+            f.close()
+        except Exception as e:
+            print("Error creating new file: " + str(e))
+
+    # return empty contents
+    return []
+
+
+
+def generateChatName(chatName: str, model: str) -> str: 
+
+    # the format of the resulting chat name will be:
+    # 'modelname-YYYY-MM-DD-HH-MM-SS'
+    # so model name followed by the date followed by the 
+
+    model = model.replace(':', '-') # windows does not allow colons in file names
+    model = model.replace('.', '-') # the file reading breaks if another period exists, so replace it with dashes
+
+    # Generate current date and time in the format 'YYYY-MM-DD-HH-MM-SS' 
+    timestamp = datetime.now().strftime('%Y-%m-%d-%H-%M-%S') 
+    # Format the resulting chat name 
+    chatName = f"{model}--{timestamp}" 
+    return chatName 
+
+
+def markdownToHtml(markdownText):
+    if not markdownText:
+        return ""
+    
+# 1. Fix Block Math: Convert [ ... ] to $$ ... $$
+    # This now allows for any spaces/tabs before the opening bracket and clears them out
+    fixed_text = re.sub(r'(?m)^[ \t]*\[\s*([\s\S]*?)\s*\]', r'$$\n\1\n$$', markdownText)
+    
+    # 2. Fix Inline Math: Convert ( ... ) to $ ... $
+    fixed_text = re.sub(r'\(\s*([\s\S]*?)\s*\)', r'$\1$', fixed_text)
+    
+    # 3. Parse the Markdown safely to HTML
+    mardownParser = mistune.create_markdown(plugins=[math])
+
+    # print(fixed_text)
+    html_output = mardownParser(fixed_text)
+
+    return html_output
 
 
 

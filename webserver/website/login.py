@@ -28,6 +28,7 @@ def validateLogin():
         response.set_cookie("login-status", 'true', samesite='Lax')
         
         return response, 200
+    
 
 
         # return jsonify({
@@ -60,6 +61,9 @@ def logoutUser():
         # clear login related cookies
         session.pop('username') # remove the login username
         response.delete_cookie('login-status') # remove the login-status cookie
+
+        for cookie in request.cookies:
+            response.delete_cookie(cookie)
 
         return response
 

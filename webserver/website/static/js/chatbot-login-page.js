@@ -8,7 +8,7 @@ loginForm.addEventListener("submit", async (event) => {
 
     // conver the form data to a javascript object
     const data = Object.fromEntries(formData.entries());
-    console.log(data)
+    // console.log(data)
     const dataUrlPath = "/chatbot/login-validation"
 
     // WARNING!!!! ENCRYPT THE PASSWORD HERE PRIOR TO MAKING POST REQUEST!

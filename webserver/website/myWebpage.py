@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, Response, session, redirect, url_for, make_response
-from helperFunctions import storeChatData, getModelNames, openOllama
+from helperFunctions import openOllama
 
 from login import login_bp
 from apiCalls import api_bp
@@ -44,4 +44,5 @@ if __name__ == '__main__':
     index = 0
     init()
     # cap = openCamera(index)
+    print("\n\nTo connect (via wifi) use Wifi IPv4 (default): 192.168.1.167:5000\n")
     app.run(debug=False, host="0.0.0.0", port=5000)

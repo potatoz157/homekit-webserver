@@ -6,4 +6,8 @@ chatbot_bp = Blueprint('chatbot', __name__, url_prefix='/chatbot')
 # @app.route('/chatbot/')
 @chatbot_bp.route('/')
 def openChatBotPage():
+    # enforce login to use chatbot page
+    # if 'username' not in session:
+    #     return redirect(url_for('login.openChatBotLoginPage'))
+    
     return render_template("ai-assistant.html")
