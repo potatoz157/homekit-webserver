@@ -26,7 +26,7 @@ body {
     display: flex;
     flex-direction: column;
 
-    padding: 40px;
+    padding: 20px 40px;
     
     border-radius: 8px;
 
@@ -105,3 +105,23 @@ body {
 .login-btn:hover {
     background-color: #5a5a5a;
 } 
+
+
+.login-register-redirect {
+    margin: 0;
+    padding-top: 10px;
+    /* padding-bottom: 10px; */
+    margin-top: auto;
+    
+    background-color: transparent;
+    color: white;
+}
+
+.back-button {
+    margin: 0;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    background-color: transparent;
+    color: white;
+}

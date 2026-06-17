@@ -18,8 +18,10 @@
 <body>
 
     <div class="login-container">
+        <a href="/chatbot" class="back-button">Back to Chatbot</a>
         <h2 style="color: white; margin-top: 0; padding-top: 0; margin-bottom: 5%">Sign In</h2>
-        <form id="login-form">
+        <!-- the form itself does not have any CSS, i.e. nothing is defined for tags with #login-form ID  -->
+        <form id="login-form"  action="/chatbot/login-validation" method="POST">
             <div class="input-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" required autocomplete="off">
@@ -31,7 +33,8 @@
             </div>
 
             <button type="submit" class="login-btn">Log In</button>
-        </form action="/chatbot/login-validation" method="POST">
+        </form>
+        <a href="/chatbot/register" class="login-register-redirect">Don't have an account? Sign Up!</a>
     </div>
 
 

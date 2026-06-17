@@ -1,6 +1,6 @@
 from flask import Blueprint, request, session, jsonify
 from helperFunctions import storeChatData, getModelNames, generateLLMResponse, getUserChatHeaders, getChatContents, markdownToHtml, generateChatName
-
+from databaseTables import engine
 
 # all URLS inside of chat_bp will automatically have their route start with /api/ because of the 3rd argument
 # api_bp = Blueprint('api', __name__)

@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, Response, session, redirect, url_for, make_response
 from helperFunctions import openOllama
+from databaseTables import init_db
 
 from login import login_bp
 from apiCalls import api_bp
@@ -22,6 +23,9 @@ app.secret_key = 'super-duper-secret-key' # change later
 
 def init():
     openOllama()
+    init_db() # creates database and tables if missing
+
+
 
 @app.route('/')
 def openHome():

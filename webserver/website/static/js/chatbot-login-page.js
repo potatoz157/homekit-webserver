@@ -25,7 +25,7 @@ loginForm.addEventListener("submit", async (event) => {
 
         const result = await response.json();
 
-        if (result.status == "logged-in") {
+        if (result.status == "success") {
             alert("Login Successful");
             window.location.href = '/chatbot/' // redirect user back to chatbot page
             

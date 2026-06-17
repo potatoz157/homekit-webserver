@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Chatbot Registration Page</title>
+    
+    <!-- use the same CSS as the login page -->
+    <link rel="stylesheet" href="/static/css/chatbot-login-page.css">
+
+    <script src="/static/js/chatbot-register-page.js" defer></script>
+
+</head>
+
+
+
+<body>
+
+    <div class="login-container">
+        <a href="/chatbot" class="back-button">Back to Chatbot</a>
+        <h2 style="color: white; margin-top: 0; padding-top: 0; margin-bottom: 5%">Register</h2>
+
+        <!-- the form itself does not have any CSS, i.e. nothing is defined for tags with #register-form ID  -->
+        <!-- since the javascript intercepts the form submission event and does event.preventDefault(), the attributes are useless -->
+        <!-- <form id="register-form" action="/chatbot/login-validation" method="POST"> -->
+        <form id="register-form" tabindex="-1">
+            <div class="input-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autocomplete="off">
+            </div>
+    
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+                
+            <div class="input-group">
+                <label for="password">Confirm Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required>
+            </div>
+
+            <button type="submit" class="login-btn">Register</button>
+        </form>
+        <a href="/chatbot/login" class="login-register-redirect">Already have an account? Login!</a>
+    </div>
+
+
+
+</body>
+
+</html>
+
+
+
+
