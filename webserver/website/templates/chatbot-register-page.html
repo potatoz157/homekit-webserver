@@ -25,18 +25,28 @@
         <!-- <form id="register-form" action="/chatbot/login-validation" method="POST"> -->
         <form id="register-form" tabindex="-1">
             <div class="input-group">
-                <label for="username">Username</label>
+                <label for="username">
+                    <p>Username</p>
+                    <p id="username-field-error-msg" class="input-field-error-msg">   * username already exists</p>
+                </label>
                 <input type="text" id="username" name="username" required autocomplete="off">
             </div>
     
             <div class="input-group">
-                <label for="password">Password</label>
+                <label for="password">
+                    <p>Password</p>
+                    <!-- define empty error message element for the password -->
+                    <p id="pass-field-error-msg" class="input-field-error-msg"></p>
+                </label>
                 <input type="password" id="password" name="password" required>
             </div>
 
                 
             <div class="input-group">
-                <label for="password">Confirm Password</label>
+                <label for="password">
+                    <p>Confirm Password</p>
+                    <p id="confirm-pass-field-error-msg" class="input-field-error-msg">   * passwords do not match</p>
+                </label>
                 <input type="password" id="confirm_password" name="confirm_password" required>
             </div>
 

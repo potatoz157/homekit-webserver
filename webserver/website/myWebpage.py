@@ -26,7 +26,6 @@ def init():
     init_db() # creates database and tables if missing
 
 
-
 @app.route('/')
 def openHome():
     return render_template("homepage.html")
@@ -41,7 +40,6 @@ def openSecurityCameraPage():
 # def videoFeed():
 #     global cap
 #     return Response(generateFrames(cap), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 
 
 if __name__ == '__main__':

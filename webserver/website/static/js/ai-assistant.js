@@ -3,6 +3,8 @@ let cachedModels = null; // used to store and compare previously models availabl
 // let emptyChat = true; // NO LONGER USED!
 let currentModel = 'qwen2.5:14b-instruct';
 let currentChatName = 'newchat';
+let context = [];
+const contextSize = 40; // limit number of total messages to 40 (one msg is a user input or an llm output) -- total 20 user inputs + 20 llm outputs
 
 // when AI Assistant page loads, perform the following
 document.addEventListener("DOMContentLoaded", async () => {
@@ -123,27 +125,40 @@ async function uploadText() {
     const body = JSON.stringify({
         message: userInput,
         model: currentModel,
-        chatname: currentChatName
+        chatname: currentChatName,
+        context: context
     });
 
     // generate post request with user input over the given route
     const response = await sendJsonPostRequest("/api/user/chat/inputs/", body);
     const data = await response.json();
 
+    // append user input to the context field after the context has been sent (prevent duplaction of user input)
+    context.push({role: "user", content: userInput});
+
     // if the current chat is a new chat, get the generated chat name
     if (currentChatName == "newchat" || currentChatName == null) {
         currentChatName = data.chatname;
     }
     // currentChatName = data.chatName;
-    
-    if (data.status == "sent") {
+    console.log(data.status);
+    if (data.status.includes("success")) {
     
         // create element to contain LLM response
         const llmTextElement = document.createElement('div');
         llmTextElement.className = 'chat-text-style ai-chat-margins';
-
+        const llm_response = data.chatbot_response;
         // populate the element the HTML code that was generated from the LLM output
-        llmTextElement.innerHTML = data.chatbot_response; // get the LLM response (response has been translated to HTML)
+        // llmTextElement.innerHTML = llm_response; // get the LLM response (response has been translated to HTML)
+        llmTextElement.innerText = llm_response; // get the LLM response (response has been translated to HTML)
+
+        context.push({role: "user", content: llm_response}); // store the llm output into the context
+
+        // if the number of tokens read and evaluated is > 6000, remove the oldest prompt and response
+        if (context.length > contextSize) {
+            context.shift()
+            context.shift()
+        }
 
         currentChatContainer.appendChild(llmTextElement);
     }
@@ -279,7 +294,7 @@ async function getChatHistory() {
     const data = await response.json(); // get the actual data as a json
 
     if (data.status == "success") {
-        return data.message;
+        return data.chatList;
     }
     return null;
 
@@ -455,8 +470,6 @@ function clearExcessCookies() {
             document.cookie = key[0] + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/api/user/chat/history/contents";
         }
     }
-
-
 
 }
 

@@ -5,23 +5,23 @@ from sqlalchemy.orm import Session, selectinload
 from databaseTables import User, Chat, Message, FileUpload
 
 # creates a new user object, returns True on success and False on failure (i.e. if username already exists)
-def addUser(session: Session, username: str, password: str) -> bool:
+def addUser(session: Session, username: str, password: str) -> tuple[bool, Optional[User]]:
     # first check if username already exists
     username_exists = session.scalars(select(User.ID).where(User.username == username)).first()
 
     if username_exists:
         print("Error: failed to add user, the following username already exists: ", username)
-        return False
+        return False, None
 
     hashedPassword = password # APPLY HASHING FUNCTION HERE
 
     new_user = User(username=username, password=hashedPassword)
     session.add(new_user)
     session.commit()
-    return True
+    return True, new_user
 
 # creates a new chat object for the given user
-def addUserChat(session: Session, username: str, chatName: str) -> bool:
+def addUserChat(session: Session, username: str, chatName: str, model='qwen2.5:14b-instruct') -> tuple[bool, Optional[Chat]]:
     # get user from database then append chat to user.chats
     stmt = select(User).where(User.username == username) # build the query
 
@@ -29,25 +29,29 @@ def addUserChat(session: Session, username: str, chatName: str) -> bool:
     # by default, select returns tuples, i.e. (username, password, ...), but .scalars() strips 
     # away the tuple and converts it into the Python object directly i.e. Users()
     user = session.scalars(stmt).first()
+    new_chat = None
     if (user):
-        user.chats.append(Chat(chat_name=chatName))
+        new_chat = Chat(chat_name=chatName, model=model)
+        user.chats.append(new_chat)
         session.commit()
-        return True
+        return True, new_chat
     
     print("Failed to locate user, chat not added...")
-    return False
+    return False, new_chat
 
 # creates a new message object for the given chat for the given user
-def addChatMsg(session: Session, username: str, chatName: str, role: str, contents: str) -> bool:
+def addChatMsg(session: Session, username: str, chatName: str, role: str, contents: str) -> tuple[bool, Optional[Message]]:
     # get the specific chat for the specific user and append a new message
     chat = getUserChat(session=session, username=username, chatName=chatName)
+    new_msg = None
     if chat:
-        chat.messages.append(Message(role=role, contents=contents))
+        new_msg= Message(role=role, contents=contents)
+        chat.messages.append(new_msg)
         session.commit()
-        return True
+        return True, new_msg
 
     print("Error: Failed to locate chat, message was not added...")
-    return False
+    return False, new_msg
 
 # creates a new fileupload object for the given chat for the given user
 def addFileToChat(session: Session, username: str, chatName: str, filePath) -> bool:
@@ -144,3 +148,12 @@ def getAllUserFiles(session: Session, username: str) -> List[FileUpload]:
     print("Error: user not found, returning empty list of files for user...")
     return []
 
+def getAllUserChatNames(session: Session, username: str) -> List[str]:
+
+    chat_names = session.scalars(
+        select(Chat.chat_name)
+        .join(User.chats)
+        .where(User.username == username)
+    ).all()
+
+    return list(chat_names)

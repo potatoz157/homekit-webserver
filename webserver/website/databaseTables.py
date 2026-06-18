@@ -30,11 +30,12 @@ class Chat(Base):
     # ForeignKey links this chat to the user who created it
     user_ID: Mapped[int] = mapped_column(ForeignKey("users.ID"), nullable=False)
 
+    model: Mapped[str] = mapped_column(Text, nullable=True) # will hold the model the chat was made with
     chat_name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
 
 
     # make virtual shortcut to see all messsages, files in this chat
-    messages: Mapped[List["Message"]] = relationship(back_populates="chat", cascade="all, delete-orphan")
+    messages: Mapped[List["Message"]] = relationship(back_populates="chat", cascade="all, delete-orphan", order_by="Message.ID")
     files: Mapped[List["FileUpload"]] = relationship(back_populates="chat", cascade="all, delete-orphan")
     user: Mapped["User"] = relationship(back_populates="chats") # shortcut to see user for this chat
 

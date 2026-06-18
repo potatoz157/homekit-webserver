@@ -4,25 +4,14 @@ registrationForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const usernameField = document.getElementById("username");
-    const confirmPasswordField = document.getElementById("confirm_password");
-
-    // clear any existing errors
-    // usernameField.setCustomValidity(""); // clear the existing user error message
-    // confirmPasswordField.setCustomValidity("");    // clear the error message
 
     // extract the form data using built-in FormData api
     const formData = new FormData(registrationForm);
     const data = Object.fromEntries(formData.entries()); // convert the form data to a javascript object
-    
 
-    console.log(data);
 
     if (data.password !== data.confirm_password) {
-        // set the error message on the confirm password input field
-        confirmPasswordField.setCustomValidity("Passwords do not match.");
-
-        // show the popup immediately
-        confirmPasswordField.reportValidity();
+        document.getElementById("confirm-pass-field-error-msg").style.display = "block"; // show the passwords do not match error
         return; // exit immediately
     }
 
@@ -39,7 +28,7 @@ registrationForm.addEventListener("submit", async (event) => {
         });
     
         const result = await response.json();
-        console.log(result.status == "error-user-exists");
+        console.log(result.status);
         // if a user was successfully added, redirect the user (user should be logged in upon registration -- this is handled in backend)
         if (result.status == "success") {
             alert("Registration Successful");
@@ -47,14 +36,8 @@ registrationForm.addEventListener("submit", async (event) => {
             return;
         }
         else if (result.status == "error-user-exists") {
-            
-            // REPLACE THE VALIDITY MESSAGES WITH A CUSTOM TEXT MESSAGE ELEMENT (e.g. <h4> tag) SET INSIDE THE HTML
-            // SIMPLY TRIGGER THE DISPLAY ON/OFF AS NEEDED
-            // THE CURRENT IMPLEMENTATION DOES NOT PROPERLY BRING THE POPUP FOR EXISTING USERNAMES
-            // -- DO THIS FOR BOTH THE REGISTRATION PAGE AND LOGIN PAGE!!!!!!!!!!!!!
-
-            usernameField.setCustomValidity("Username already exists.");
-            usernameField.reportValidity();
+            const usernameErrorLabel = document.getElementById("username-field-error-msg");
+            usernameErrorLabel.style.display = "block";
             return;
         }
     
@@ -66,17 +49,22 @@ registrationForm.addEventListener("submit", async (event) => {
 
 });
 
-
-// 1. Clear the username error as soon as the user changes their username
+// clear the username error the moment anything is typed into the username field
 document.getElementById("username").addEventListener("input", function() {
-    this.setCustomValidity("");
+    document.getElementById("username-field-error-msg").style.display = 'none';
+
 });
 
-// 2. Clear the password errors as soon as they type in either password field
 document.getElementById("password").addEventListener("input", function() {
-    document.getElementById("confirm_password").setCustomValidity("");
+
+    document.getElementById("pass-field-error-msg").style.display = 'none';
+    document.getElementById("confirm-pass-field-error-msg").style.display = 'none';
+
 });
 
 document.getElementById("confirm_password").addEventListener("input", function() {
-    this.setCustomValidity("");
+
+    document.getElementById("pass-field-error-msg").style.display = 'none';
+    document.getElementById("confirm-pass-field-error-msg").style.display = 'none';
+    
 });

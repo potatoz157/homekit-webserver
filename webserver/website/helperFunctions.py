@@ -4,35 +4,37 @@ from cv2_enumerate_cameras import enumerate_cameras
 from ollama import chat
 from datetime import datetime
 from flask import jsonify
+from databaseFunctions import getAllUserChatNames, getUserChat
+from databaseTables import get_engine
+from sqlalchemy.orm import Session
 
+# # appends the data to the end of the chatHistory.json. The input argument should be in the format of a json!
+# def storeChatData(data, user, chatName):
+#     # the first argument, the input data, should be in the form of a json: {"message": data}
 
-# appends the data to the end of the chatHistory.json. The input argument should be in the format of a json!
-def storeChatData(data, user, chatName):
-    # the first argument, the input data, should be in the form of a json: {"message": data}
+#     if not user:
+#         user = 'guest'
 
-    if not user:
-        user = 'guest'
+#     existingContents = getChatContents(user, chatName) # fetch existing chat history (creates the file if needed)
+#     existingContents.append(data) # append user input/prompt to chat history (data is already a json object)
 
-    existingContents = getChatContents(user, chatName) # fetch existing chat history (creates the file if needed)
-    existingContents.append(data) # append user input/prompt to chat history (data is already a json object)
-
-    filePath = 'user-data/' + user + '/' + chatName + '.json'
-    # print("File path to save to is: ", filePath)
-    try: 
-        # open the chat file and write the updated contents to it (replaces everything already inside)
-        f = open(filePath, "w")
-        json.dump(existingContents, f, indent=4)
-        f.close()
-        return jsonify({
-            "status": "sent",
-        }), 200
+#     filePath = 'user-data/' + user + '/' + chatName + '.json'
+#     # print("File path to save to is: ", filePath)
+#     try: 
+#         # open the chat file and write the updated contents to it (replaces everything already inside)
+#         f = open(filePath, "w")
+#         json.dump(existingContents, f, indent=4)
+#         f.close()
+#         return jsonify({
+#             "status": "sent",
+#         }), 200
     
-    except Exception as e:
-        print("Failed to save chat history to JSON: " + str(e))
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 400
+#     except Exception as e:
+#         print("Failed to save chat history to JSON: " + str(e))
+#         return jsonify({
+#             "status": "error",
+#             "message": str(e)
+#         }), 400
     
 
 # starts ollama process (ollama needs to be open to fetch available model names)
@@ -68,153 +70,146 @@ def getModelNames() -> list[str]:
         models.append(modelInfo.get('model', []))
     return models
 
+def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
+    """
+    Combines the user input prompt and context then feeds it to the defined model using ollama's python library.
 
-def generateLLMResponse(user : str, user_input : str, model : str, chatName : str):
-    # user_input = value of a json object (equal to a string)
-    # model = value of a json object = string
+    Parameters
+    -----------
+        user_input: str
+            should be a string with the literal value of the user prompt.
+        model: str
+            should be a string that exactly matches the available/installed ollama model.
+        context: list
+            should be a json array that holds all of the past prompts and responses excluding the system prompt.
+    
+    Returns
+    -------
+        Returns a tuple containing the llm reponse and thinking.
 
-    # to keep chat history context, you must fetch all of the previous prompts and resend them
-    # to the llm as part of your message.
-    # NOTE: The message sent to the llm is in the form of a json array (or dict in python)
-    # Ollama uses the 'role' parameter to tell the model who is speaking 
-    # (i.e. user or assistant = llm)
-    # a 'system' role also exists which is useful for hard-coding an important instruction
-    # the system role is not meant to be used dynamically (i.e. user should not be sending
-    # messages as with the role of system)
+        ai_response: str
+            the literal response of the LLM
+        ai_thinking: str
+            the literal thinking of the LLM
+    """
 
-    # reconstruct a json object to hold all previous chat context
+
     messages = [{
         "role":  "system", "content": "Be concise. Respond in english only unless prompted." # optional, (hard-coded) high-priority instruction
     }]
 
+    if context:
+        messages.extend(context) # combine the previous chat history with messages
+
+    # append the user prompt to the messages
+    messages.append({
+        "role": "user", "content": user_input
+    })
+
+    chatResponse = chat(
+        model=model,
+        messages=messages,
+        options={
+            'num_ctx':8192
+        },
+        stream=False
+    )
 
 
-    # fetch previous chat history and append it to the messages
-    if user:
-        prevContents = getChatContents(user, chatName)
-        if prevContents:
-            for prompt in prevContents:
-                messages.append({"role": "user", "content": prompt.get('message')})
-                messages.append({"role": "assistant", "content": prompt.get('response')})
-        # if prevContents:
-        #     messages.extend(prevContents) # this expands the list of messages using the previous chat contents (i.e. [{}, {}] + [{}, {}] = [{}, {}, {}, {}])
+    ai_response = chatResponse.message.content
+    ai_thinking = chatResponse.message.thinking
+    context_tokens = chatResponse.prompt_eval_count # number of tokens read and evaluated by LLM
 
-    # add current user prompt/input (should be added LAST so the model sees it 
-    # as the question and not chat history)
-    messages.append({"role": "user", "content": user_input})
-    chatResponse = chat(model=model, messages=messages, options={'num_ctx': 8192})
+    # ensure return value is always a string, even if its empty
+    if not ai_thinking:
+        ai_thinking = ""
 
-    reasoning = chatResponse.message.thinking
-    final_answer = chatResponse.message.content
+    if not ai_response:
+        ai_response = ""
 
-    # chatResponse = generate(model, messages)
-    # chat_thinking = chatResponse.thinking
-    # print("LLM THINKING: ", chatResponse.thinking)
-    # print("LLM RESPONSE: ", chatResponse.response)
+    if not context_tokens:
+        context_tokens = -1
 
 
-    # return chatResponse.response, chatResponse.thinking
+    return ai_response, ai_thinking, context_tokens
 
-    return final_answer, reasoning
+
 
 # this function should only be called with a valid user (and not a guest account)
 def getUserChatHeaders(user):
+    """
+    For the given user, fetches and lists all of the chat names from the database.
+
+    user: str
+        user is the string value of the username
+    """
+
+
     # go to directory for user data:
     # /user-data/USERNAME/*.json --> all json files here are different chat histories
 
     # NOTE: if you start the path with a slash, it is treated as an absolute path! Remove the starting slash for relative path!!!!
-    historyPath = 'user-data/' + user
-    existingFiles = os.listdir(historyPath)
+    # historyPath = 'user-data/' + user
+    # existingFiles = os.listdir(historyPath)
 
-    chats = []
 
-    # for every file inside of the directory, get the filename if the file is not empty
-    for file in existingFiles:
-        filePath = os.path.join(historyPath, file)
+    with Session(get_engine()) as sesh:
+        return getAllUserChatNames(session=sesh, username=user)
+
+
+    # chatList = []
+
+    # # for every file inside of the directory, get the filename if the file is not empty
+    # for file in existingFiles:
+    #     filePath = os.path.join(historyPath, file)
         
-        # if the current file (name) is actually a file (and not a folder/dir), and its not empty, append it to the list of chats
-        if os.path.isfile(filePath):
-            if os.path.getsize(filePath) > 0:
-                chats.append(file.split(".")[0])
+    #     # if the current file (name) is actually a file (and not a folder/dir), and its not empty, append it to the list of chats
+    #     if os.path.isfile(filePath):
+    #         if os.path.getsize(filePath) > 0:
+    #             chats.append(file.split(".")[0])
 
-    return chats
+    # return chatList
 
-    # the history should have the format of a json:
-    # basically, one json object holding keys, chat0, chat1, chat2, ...(lets call it chat_i)
-    # the value of each chat_i object is a json array that holds the user message/prompt, llm thoughts, llm response and model name 
+
+
+
+# fetches the full contents of a specific chat for the given user
+def getChatContents(user : str, chatName : str) -> tuple[list, str]:
     
-    # {
-    #     "chat0": [
-    #         {
-    #             "message": "message contents",
-    #             "response": "llm response",
-    #             "model_thinking": "llm thinking response",
-    #             "model": "model name"
-    #         },
-    #                     {
-    #             "message": "message contents",
-    #             "response": "llm response",
-    #             "model_thinking": "llm thinking response",
-    #             "model": "model name"
-    #         }
-    #     ],
-    #     "chat1": [
-    #         # repeat same pattern for all chats
-    #     ]
-    # }
+    with Session(get_engine()) as sesh:
+        chat = getUserChat(session=sesh, username=user, chatName=chatName)
+
+        if not chat:
+            return [], ""
+        
+        db_messages = chat.messages
+        model = chat.model
+        chat_contents = []
+        
+        # for i = 0; i < len(db_message); i+=2
+        num_msgs = len(db_messages)
+        for i in range(0, num_msgs, 2):
+            # the first msg is the user prompt
+            user_msg = db_messages[i].contents
+
+            # the second msg is the llm response
+            llm_msg = None
+            if i + 1 < num_msgs:
+                llm_msg = db_messages[i+1].contents
+            
+            chat_contents.append({
+                "message": user_msg,
+                "response": llm_msg,
+                # "model_thinking": None,
+                # "model": model
+            })
+            
+        return chat_contents, model
 
 
-# fetches the contents of a specific chat for the given user. If the chat does not exist, a new (empty) chat history json is created
-def getChatContents(user : str, chatName : str):
-    # check if the folder exists, then check if the file exists
-    # if the file exists, read it and return the contents
-    # if the file does not exist, create it and return empty contents
 
-    if not user:
-        user = 'guest'
 
-    filePath = 'user-data/' + user + '/' + chatName + '.json'
-    
-    # check if the folder for the data exists, if it does not exist, make the directory (which would be the /user-data/USER child folder)
-    folder = os.path.dirname(filePath)
-    if not os.path.exists(folder):
-        os.mkdir(folder)
 
-    # if the file exists, read its contents and return it
-    existingContents = []
-
-    # print("Checking contents of file: ", filePath)
-    if os.path.isfile(filePath) and os.path.getsize(filePath) > 0:
-        try:
-            f = open(filePath, 'r')
-            try:
-                existingContents = json.load(f)
-            except Exception as e:
-                print("Error loading json contents of file: " + str(e))
-                existingContents = []
-
-            if (not isinstance(existingContents, list)):
-                existingContents = []
-            f.close()
-
-        except Exception as e:
-            print("Error opening the file: " + str(e))
-            existingContents = []
-
-        return existingContents
-    
-
-    # otherwise, create the file and return empty contents
-    else:
-        try:
-            # open the file with write perms (this creates the file if it does not exist), then immediately close it
-            f = open(filePath, 'w')
-            f.close()
-        except Exception as e:
-            print("Error creating new file: " + str(e))
-
-    # return empty contents
-    return []
 
 
 
@@ -252,6 +247,47 @@ def markdownToHtml(markdownText):
     html_output = mardownParser(fixed_text)
 
     return html_output
+
+
+
+
+# to keep chat history context, you must fetch all of the previous prompts and resend them
+# to the llm as part of your message.
+# NOTE: The message sent to the llm is in the form of a json array (or dict in python)
+# Ollama uses the 'role' parameter to tell the model who is speaking 
+# (i.e. user or assistant = llm)
+# a 'system' role also exists which is useful for hard-coding an important instruction
+# the system role is not meant to be used dynamically (i.e. user should not be sending
+# messages as with the role of system)
+# def generateLLMResponse(user : str, user_input : str, model : str, chatName : str):
+#     # user_input = value of a json object (equal to a string)
+#     # model = value of a json object = string
+
+#     # reconstruct a json object to hold all previous chat context
+#     messages = [{
+#         "role":  "system", "content": "Be concise. Respond in english only unless prompted." # optional, (hard-coded) high-priority instruction
+#     }]
+
+#     # fetch previous chat history and append it to the messages
+#     if user:
+#         prevContents = getChatContents(user, chatName)
+#         if prevContents:
+#             for prompt in prevContents:
+#                 messages.append({"role": "user", "content": prompt.get('message')})
+#                 messages.append({"role": "assistant", "content": prompt.get('response')})
+#         # if prevContents:
+#         #     messages.extend(prevContents) # this expands the list of messages using the previous chat contents (i.e. [{}, {}] + [{}, {}] = [{}, {}, {}, {}])
+
+#     # add current user prompt/input (should be added LAST so the model sees it 
+#     # as the question and not chat history)
+#     messages.append({"role": "user", "content": user_input})
+#     chatResponse = chat(model=model, messages=messages, options={'num_ctx': 8192})
+
+#     reasoning = chatResponse.message.thinking
+#     final_answer = chatResponse.message.content
+
+#     return final_answer, reasoning
+
 
 
 

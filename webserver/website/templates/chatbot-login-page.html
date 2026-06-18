@@ -23,20 +23,29 @@
         <!-- the form itself does not have any CSS, i.e. nothing is defined for tags with #login-form ID  -->
         <form id="login-form"  action="/chatbot/login-validation" method="POST">
             <div class="input-group">
-                <label for="username">Username</label>
+                <label for="username">
+                    <p>
+                        Username
+                    </p>
+                </label>
                 <input type="text" id="username" name="username" required autocomplete="off">
             </div>
     
             <div class="input-group">
-                <label for="password">Password</label>
+                <label for="password">
+                    <p>
+                        Password
+                    </p>
+                </label>
                 <input type="password" id="password" name="password" required>
             </div>
+
+            <div id="login-error-message" class="input-field-error-msg" style="margin: 0; padding: 0;">* username or password is incorrect</div>
 
             <button type="submit" class="login-btn">Log In</button>
         </form>
         <a href="/chatbot/register" class="login-register-redirect">Don't have an account? Sign Up!</a>
     </div>
-
 
 
 </body>

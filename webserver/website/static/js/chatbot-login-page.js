@@ -1,18 +1,16 @@
-const loginForm = document.getElementById("login-form");
 
-loginForm.addEventListener("submit", async (event) => {
+document.getElementById("login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+
+    const loginForm = document.getElementById("login-form");
 
     // extract the form data using built-in FormData api
     const formData = new FormData(loginForm);
 
     // conver the form data to a javascript object
     const data = Object.fromEntries(formData.entries());
-    // console.log(data)
     const dataUrlPath = "/chatbot/login-validation"
 
-    // WARNING!!!! ENCRYPT THE PASSWORD HERE PRIOR TO MAKING POST REQUEST!
-    // YOU ARE CURRENTLY SENDING RAW PASSWORD TO BACKEND!
 
     try {
         const response = await fetch(dataUrlPath, {
@@ -30,7 +28,8 @@ loginForm.addEventListener("submit", async (event) => {
             window.location.href = '/chatbot/' // redirect user back to chatbot page
             
         } else {
-            alert("Login Failed: " + result.message);
+            document.getElementById("login-error-message").style.display = "block";
+            // alert("Login Failed: " + result.message);
         }
     }
     catch (error) {
@@ -38,5 +37,14 @@ loginForm.addEventListener("submit", async (event) => {
         alert("Something went wrong. Please try again.")
     }
 
+});
 
-})
+
+document.getElementById("username").addEventListener("input", function() {
+    document.getElementById("login-error-message").style.display = "none";
+});
+
+
+document.getElementById("password").addEventListener("input", function() {
+    document.getElementById("login-error-message").style.display = "none";
+});
