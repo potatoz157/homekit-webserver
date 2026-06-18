@@ -1,3 +1,7 @@
+To place all dependencies into requirements.txt do:
+pip freeze > requirements.txt
+
+
 File Input Analysis:
     - RAG --> vector database along with chunked raw text
         - better for massive numbers of unstructured database, unlimited indexing scale (much larger size capacity)
