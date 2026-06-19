@@ -1,6 +1,4 @@
-// const textBox = document.getElementById("input-box"); // this is the text box where the user puts prompts for the llm's
 let cachedModels = null; // used to store and compare previously models available for use (downloaded on the server/backend)
-// let emptyChat = true; // NO LONGER USED!
 let currentModel = 'qwen2.5:14b-instruct';
 let currentChatName = 'newchat';
 let context = [];
@@ -72,54 +70,31 @@ document.getElementById("input-box").addEventListener("input", function() {
     resizeTextBox();
 });
 
-
 // posts user input to backend (using another function) and updates the UI
 async function uploadText() {
 
-    // THIS FUNCTION NEEDS TO: (some of the orders were changed in the code to make more logical sense)
-    // disable uploadText button (here) until previous upload fully completes
-        // update the upload button icon to be a square to indicate 'STOP' (current does nothing -- implement stop for streaming later)
-    // this function first needs to empty the user input inside the input text area
-    // then it needs to update the UI:
-        // hide welcome greeting (if this is a new chat)
-        // append user input to the children of current-chat-container
-    // send post request with user input prompt and extract LLM response from the route response
-        // in backend, save user input prompt into chat database (create new history file this is a new chat)
-        // wait for LLM response then append response to children of current-chat-container
-    // enable uploadText button (here) so next prompt can be made
-        // restore upload text button icon to an up arrow to indicate completion
-
-
     const uploadTextButton = document.getElementById('upload-text-btn');
     uploadTextButton.onclick = null; // remove attached onclick function
-    // updateSubmitButtonIcon('disable'); // implement this later to update the icon
 
     const textBox = document.getElementById("input-box");
     const userInput = textBox.value; // read and save textbox value
-    // const userInput = textBox.value.trim(); // read and save textbox value
     textBox.value = ""; // clear textbox
     resizeTextBox(); // update textbox UI
 
 
     // create element to container user input
     const userTextElement = document.createElement('p');
-    userTextElement.className = 'chat-text-style user-chat-margins'; // here, set the second class name (the one that sets the margins) based on whether it is a user or ai block of text
+    userTextElement.className = 'chat-text-style user-chat-margins'; 
     userTextElement.textContent = userInput; // set the text as the literal user input
 
     // get container to hold all of the chat text (by user and LLM)
     const currentChatContainer = document.getElementById('current-chat-container');
 
-    // hide initial greeting and show container holding all the chat text
-        // although this only needs to be done if the chat is a newchat, lets do it always to be more robust
-    // if (document.getElementById('loaded-chat-name').textContent == "newchat") {
-        document.getElementById('initial-greeting').style.display = 'none';
-        currentChatContainer.style.display = 'flex';
-    // } 
+    document.getElementById('initial-greeting').style.display = 'none';
+    currentChatContainer.style.display = 'flex';
     
     // add the user input element to the chat box
     currentChatContainer.appendChild(userTextElement);
-    // const chatName = document.getElementById('loaded-chat-name').textContent;
-    // currentChatName = chatName;
 
     // define post request body
     const body = JSON.stringify({
@@ -129,45 +104,85 @@ async function uploadText() {
         context: context
     });
 
-    // generate post request with user input over the given route
-    const response = await sendJsonPostRequest("/api/user/chat/inputs/", body);
-    const data = await response.json();
-
-    // append user input to the context field after the context has been sent (prevent duplaction of user input)
+    // append user input to the context field after the context has been sent (prevent duplication of user input)
     context.push({role: "user", content: userInput});
 
-    // if the current chat is a new chat, get the generated chat name
-    if (currentChatName == "newchat" || currentChatName == null) {
-        currentChatName = data.chatname;
-    }
-    // currentChatName = data.chatName;
-    console.log(data.status);
-    if (data.status.includes("success")) {
+    // Generate post request. We assume sendJsonPostRequest returns the raw Response object.
+    const response = await sendJsonPostRequest("/api/user/chat/inputs/", body);
     
-        // create element to contain LLM response
-        const llmTextElement = document.createElement('div');
-        llmTextElement.className = 'chat-text-style ai-chat-margins';
-        const llm_response = data.chatbot_response;
-        // populate the element the HTML code that was generated from the LLM output
-        // llmTextElement.innerHTML = llm_response; // get the LLM response (response has been translated to HTML)
-        llmTextElement.innerText = llm_response; // get the LLM response (response has been translated to HTML)
+    // --- START OF STREAMING LOGIC ---
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    
+    // Create elements to hold incoming response and thinking text
+    const llmTextElement = document.createElement('div');
+    llmTextElement.className = 'chat-text-style ai-chat-margins';
+    currentChatContainer.appendChild(llmTextElement);
 
-        context.push({role: "user", content: llm_response}); // store the llm output into the context
+    let full_ai_response = "";
+    let full_ai_thinking = "";
+    let buffer = ""; // Buffer to catch incomplete stream lines
 
-        // if the number of tokens read and evaluated is > 6000, remove the oldest prompt and response
-        if (context.length > contextSize) {
-            context.shift()
-            context.shift()
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        // Decode binary data to string and add to our buffer
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        
+        // Save the last potentially incomplete line back to the buffer
+        buffer = lines.pop();
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith("data: ")) continue;
+
+            try {
+                // Strip the "data: " prefix and parse the JSON payload
+                const data = JSON.parse(trimmed.slice(6));
+
+                // 1. Check for the initial structural packet containing metadata
+                if (data.is_initial) {
+                    if (currentChatName == "newchat" || currentChatName == null) {
+                        currentChatName = data.chatname;
+                    }
+                    console.log(data.status);
+                    continue;
+                }
+
+                // 2. Accumulate response or thinking streams
+                if (!data.done) {
+                    if (data.ai_response) {
+                        full_ai_response += data.ai_response;
+                    }
+                    if (data.ai_thinking) {
+                        full_ai_thinking += data.ai_thinking;
+                    }
+                }
+
+                // 3. Update the UI continuously with the latest accumulated response text
+                // Adjust this if you want to visually display thinking blocks differently
+                llmTextElement.innerText = full_ai_response;
+                
+            } catch (err) {
+                console.error("Error parsing stream chunk:", err);
+            }
         }
+    }
+    // --- END OF STREAMING LOGIC ---
 
-        currentChatContainer.appendChild(llmTextElement);
+    // Store the complete accumulated output into the context now that streaming is complete
+    context.push({role: "assistant", content: full_ai_response}); 
+
+    // Keep context history managed within your context limits
+    if (context.length > contextSize) {
+        context.shift();
+        context.shift();
     }
     
-    resizeTextBox(); // update textbox UI again after LLM response is displayed
-
-    // updateSubmitButtonIcon('enable'); // implement this later to update the icon
-    uploadTextButton.onclick = () => {uploadText()}; // re-attack onclick method for upload text button
-
+    resizeTextBox(); // update textbox UI again after LLM response is fully displayed
+    uploadTextButton.onclick = () => {uploadText()}; // re-attach onclick method for upload text button
 }
 
 // opens/triggers the file selection browser upon upload file button press
@@ -338,7 +353,8 @@ async function openChat(chatName) {
     if (data.status == "success") {
         // get chat contents (actual implementation depends on how the API sends the data!!! --- also need to build the API!)
         contents = data.message;
-
+        context = []; // clear the context
+        // console.log(context);
     }
     else {
         console.error("Error accessing chat contents: ", data.status);
@@ -388,6 +404,9 @@ async function openChat(chatName) {
         llm_text.innerHTML = message.response;  // the response was modified to be HTML and not raw text
 
         currentChatContainer.appendChild(llm_text);
+
+        context.push({role: "user", content: message.message});
+        context.push({role: "assistant", content: message.response});
     }
 
 
@@ -398,6 +417,8 @@ async function openChat(chatName) {
 
 // updates the UI to bring the new chat menu (clears chat content and hides the chat text container and shows the initial greeting)
 function openNewChat() {
+
+    context = [];
     // for a new chat, empty the current-chat-container except keep the loaded-chat-name element (set the textconteont of the loaded chat to be 'newchat')
     const currentChatContainer = document.getElementById('current-chat-container');
     currentChatName = 'newchat';
@@ -488,7 +509,6 @@ async function sendJsonPostRequest(dataUrlPath, body) {
 }
 
 
-
 // NO LONGER USED -- CONVERSION DONE IN PYTHON
 // function convertMarkdownToHtml(markdownText, containerElement) {
 //     // 1. Convert Markdown format to clean HTML
@@ -500,106 +520,5 @@ async function sendJsonPostRequest(dataUrlPath, body) {
 //     // 3. Force MathJax to scan the new HTML and render the LaTeX math
 //     if (window.MathJax) {
 //         window.MathJax.typesetPromise([containerElement]);
-//     }
-// }
-
-
-// THIS WAS USED BY uploadText() BEFORE IT WAS REFACTORED -- NO LONGER USED!
-// triggers a post request with user input data (sent as a json {"message": data} )
-// returns the json response.status element of the post request (should be == 'sent' for success)
-// async function sendChatData(data) {
-
-//     const dataUrlPath = "/api/user/chat/inputs/";
-//     // console.log(data)
-//     const response = await fetch(dataUrlPath, {
-//         method: 'POST',
-//         headers: {
-//             'Content-Type': 'application/json'
-//         },
-//         body: JSON.stringify({ 
-//             message: data, 
-//             model: currentModel 
-//         })
-//     });
-
-//     // the response.json contains 2 elements, status and chatbot_response, return this directly so the parent function can update the UI using LLM response
-//     const result = await response.json();
-
-//     return result;
-// }
-
-// THIS IS A SAVE OF THE OLD FUNCTION BEFORE REFACTORING -- NO LONGER USED!
-// // posts user input to backend (using another function) and updates the UI
-// async function uploadText() {
-
-//     const data = textBox.value.trim(); // read the data
-
-//     // if data is not empty, send post request (with the data) over the given path above (also logs to console and updates UI)
-//     if (data !== "") {
-//         // send post request with data:
-//         const result = await sendChatData(data);
-//         if (result.status === "sent") {
-//             // console.log("Submitted Text:", data);
-//             textBox.value = "";
-
-//             const llm_response = result.chatbot_response; // the response has been translated to HTML from markdown
-
-//             resizeTextBox();
-
-//             // make the welcome greeting invisible (if the chat was previously empty, i.e. no chat history)
-//             if (emptyChat) {
-//                 emptyChat = false; // set chat as no longer being empty (there is now a history--first prompt)
-
-//                 // remove welcome greeting
-//                 const greetingHeader = document.getElementById("initial-greeting");
-//                 greetingHeader.style.display = 'none';
-                
-//                 // enable visibility of current chat container (wrapper for user and llm texts and responses)
-//                 const currentChatContainer = document.getElementById("current-chat-container");
-//                 currentChatContainer.style.display = 'block';
-
-//                 // create element to container user input
-//                 const text = document.createElement('p');
-//                 text.className = 'chat-text-style user-chat-margins'; // here, set the second class name (the one that sets the margins) based on whether it is a user or ai block of text
-//                 text.textContent = data; // set the text as the literal user input
-
-//                 // add the user input element to the chat box
-//                 currentChatContainer.appendChild(text);
-
-//                 // create element to contain llm response
-//                 const llm_text = document.createElement('p');
-//                 llm_text.className = 'chat-text-style ai-chat-margins';
-//                 llm_text.innerHTML = llm_response;
-//                 // translate markdown and latex into html so the effects are visible
-//                 // import {marked} from 'marked';
-//                 // llm_text.textContent = markdownToHtml(llm_response);
-//                 // convertMarkdownToHtml(llm_response, llm_text);
-
-//                 currentChatContainer.appendChild(llm_text);
-
-//             }
-//             else {
-//                 // the chat box should already be visible here
-//                 const currentChatContainer = document.getElementById("current-chat-container");
-
-//                 // create element to container user input
-//                 const text = document.createElement('p');
-//                 text.className = 'chat-text-style user-chat-margins'; // here, set the second class name (the one that sets the margins) based on whether it is a user or ai block of text
-//                 text.textContent = data; // set the text as the literal user input
-
-//                 // add the user input (element) to the chat box
-//                 currentChatContainer.appendChild(text);
-
-//                 // create element to contain llm response
-//                 const llm_text = document.createElement('p');
-//                 llm_text.className = 'chat-text-style ai-chat-margins';
-//                 llm_text.innerHTML = llm_response;
-//                 // llm_text.textContent = llm_response;
-
-//                 // convertMarkdownToHtml(llm_response, llm_text);
-//                 currentChatContainer.appendChild(llm_text);
-
-//             }
-//         }
 //     }
 // }

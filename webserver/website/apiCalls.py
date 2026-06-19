@@ -1,8 +1,9 @@
-from flask import Blueprint, request, session, jsonify
+from flask import Blueprint, request, session, jsonify, Response
 from helperFunctions import getModelNames, generateLLMResponse, getUserChatHeaders, getChatContents, markdownToHtml, generateChatName
 from databaseFunctions import getUser, getUserChat, addUserChat
-from databaseTables import get_engine, Message
+from databaseTables import get_engine, Message, Chat
 from sqlalchemy.orm import Session
+import json
 
 # all URLS inside of chat_bp will automatically have their route start with /api/ because of the 3rd argument
 # api_bp = Blueprint('api', __name__)
@@ -17,19 +18,18 @@ def saveChatData():
     #     "model": "model name",
     #     "chatname": 'chat name here"
     # }
+
     data = request.get_json()
     user_message = data.get('message')
-    # context needs to be in the format of a json array!
-    context = data.get('context') # THIS IS NEW, UPDATE THE JS TO ALSO SEND THE CONTEXT i.e. CHAT HISTORY!!!!!!!
+    context = data.get('context')   # context needs to be in the format of a json array!
     chatName = data.get('chatname')
     model = data.get('model')
 
-
-
+    chat_id = None # track the chat ID across different sessions
 
     # logged in chat response behavior
-    chat = None # this variable holds the fetched or created chat if the user was logged in
     if 'username' in session:
+        # chat = None
         username = session.get('username')
         assert username
         with Session(get_engine()) as sesh:
@@ -43,6 +43,7 @@ def saveChatData():
                 sesh.add(chat)
                 chat.messages.append(Message(role="user", contents=user_message))
                 sesh.commit()
+                chat_id = chat.ID
             
         # if no chat was found, create a new chat and append the user input to the chat
         else:
@@ -51,32 +52,73 @@ def saveChatData():
                 chat_added, new_chat = addUserChat(session=sesh, username=username, chatName=chatName, model=model)
                 if (chat_added and new_chat): # if a new chat was successfully made, save the user input prompt to the chat's messages
                     new_chat.messages.append(Message(role="user", contents=user_message))
+                    chat_id = new_chat.ID
                     status_msg = "success:new-chat-created"
                 else:
-                    print("Error: failed to create and add a new chat to the database...")
+                    # print("Error: failed to create and add a new chat to the database...")
                     status_msg = "success:failed-to-save-to-chat"
-                chat = new_chat
                 sesh.commit()
+
+                
         # ai_response, ai_thinking, _ = generateLLMResponse(user_input=user_message, model=model, context=context)
         # if chat: # if we made or located a chat previously, add the LLM output to the chat's messages
         #     chat.messages.append(Message(role="assistant", contents=ai_response))
     else:
         status_msg = "success:guest"
 
-    ai_response, ai_thinking, context_tokens = generateLLMResponse(user_input=user_message, model=model, context=context)
-    if chat: # if we made or located a chat previously, add the LLM output to the chat's messages
-        with Session(get_engine()) as sesh:
-            sesh.add(chat)
-            chat.messages.append(Message(role="assistant", contents=ai_response))
-            sesh.commit()
 
-    return jsonify({
-        "status": status_msg,
-        "chatbot_response": ai_response,
-        "chatbot_thinking": ai_thinking,
-        "context_tokens": context_tokens,
-        "chatname": chatName
-    }), 200
+    def stream_response():
+        generator = generateLLMResponse(user_input=user_message, model=model, context=context)
+
+        final_response = ""
+        final_thinking = ""
+
+        # send the initial response back to frontend so that the frontend has the new chat name and status before waiting for LLM stream
+        init_payload = {
+            "status": status_msg,
+            "chatname": chatName,
+            "is_initial": True,
+            "done": False
+        }
+
+        yield f"data: {json.dumps(init_payload)}\n\n"
+
+        for data_chunk in generator:
+            # Format and stream the current chunk directly to the frontend
+            yield f"data: {json.dumps(data_chunk)}\n\n"
+            
+            # Capture the aggregate results for database storage
+            if data_chunk.get('ai_response'):
+                assert isinstance(data_chunk['ai_response'], str)
+                final_response += data_chunk['ai_response']
+            if data_chunk.get('ai_thinking'):
+                assert isinstance(data_chunk['ai_thinking'], str)
+                final_thinking += data_chunk['ai_thinking']
+
+
+        if chat_id:
+            with Session(get_engine()) as sesh:
+                db_chat = sesh.query(Chat).get(chat_id)
+                if db_chat:
+                    db_chat.messages.append(Message(role="assistant", contents=final_response))
+                    sesh.commit()
+        
+
+    # ai_response, ai_thinking, context_tokens = generateLLMResponse(user_input=user_message, model=model, context=context)
+    # if chat: # if we made or located a chat previously, add the LLM output to the chat's messages
+    #     with Session(get_engine()) as sesh:
+    #         sesh.add(chat)
+    #         chat.messages.append(Message(role="assistant", contents=ai_response))
+    #         sesh.commit()
+
+    # return jsonify({
+    #     "status": status_msg,
+    #     "chatbot_response": ai_response,
+    #     "chatbot_thinking": ai_thinking,
+    #     "context_tokens": context_tokens,
+    #     "chatname": chatName
+    # }), 200
+    return Response(stream_response(), mimetype='text/event-stream')
     
 
 

@@ -1,4 +1,5 @@
 import json, os, cv2, mistune, re
+from collections.abc import Generator
 from mistune.plugins.math import math
 from cv2_enumerate_cameras import enumerate_cameras
 from ollama import chat
@@ -7,35 +8,8 @@ from flask import jsonify
 from databaseFunctions import getAllUserChatNames, getUserChat
 from databaseTables import get_engine
 from sqlalchemy.orm import Session
+import asyncio
 
-# # appends the data to the end of the chatHistory.json. The input argument should be in the format of a json!
-# def storeChatData(data, user, chatName):
-#     # the first argument, the input data, should be in the form of a json: {"message": data}
-
-#     if not user:
-#         user = 'guest'
-
-#     existingContents = getChatContents(user, chatName) # fetch existing chat history (creates the file if needed)
-#     existingContents.append(data) # append user input/prompt to chat history (data is already a json object)
-
-#     filePath = 'user-data/' + user + '/' + chatName + '.json'
-#     # print("File path to save to is: ", filePath)
-#     try: 
-#         # open the chat file and write the updated contents to it (replaces everything already inside)
-#         f = open(filePath, "w")
-#         json.dump(existingContents, f, indent=4)
-#         f.close()
-#         return jsonify({
-#             "status": "sent",
-#         }), 200
-    
-#     except Exception as e:
-#         print("Failed to save chat history to JSON: " + str(e))
-#         return jsonify({
-#             "status": "error",
-#             "message": str(e)
-#         }), 400
-    
 
 # starts ollama process (ollama needs to be open to fetch available model names)
 def openOllama():
@@ -70,7 +44,9 @@ def getModelNames() -> list[str]:
         models.append(modelInfo.get('model', []))
     return models
 
-def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
+
+# def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
+def generateLLMResponse(user_input : str, model : str, context: list) -> Generator[dict[str, str | bool]]:
     """
     Combines the user input prompt and context then feeds it to the defined model using ollama's python library.
 
@@ -85,26 +61,32 @@ def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[s
     
     Returns
     -------
-        Returns a tuple containing the llm reponse and thinking.
+        Returns a json object containing the llm reponse and thinking
 
-        ai_response: str
-            the literal response of the LLM
-        ai_thinking: str
-            the literal thinking of the LLM
+        result: dict
+            - result.ai_response: str
+
+                the literal response of the LLM
+            - result.ai_thinking: str
+
+                the literal thinking of the LLM
+
     """
-
 
     messages = [{
         "role":  "system", "content": "Be concise. Respond in english only unless prompted." # optional, (hard-coded) high-priority instruction
     }]
 
+
     if context:
         messages.extend(context) # combine the previous chat history with messages
+
 
     # append the user prompt to the messages
     messages.append({
         "role": "user", "content": user_input
     })
+
 
     chatResponse = chat(
         model=model,
@@ -112,26 +94,47 @@ def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[s
         options={
             'num_ctx':8192
         },
-        stream=False
+        stream=True
     )
 
+    ai_response = ""
+    ai_thinking = ""
+    in_thinking = False
 
-    ai_response = chatResponse.message.content
-    ai_thinking = chatResponse.message.thinking
-    context_tokens = chatResponse.prompt_eval_count # number of tokens read and evaluated by LLM
+    for chunk in chatResponse:
+        if chunk.message.thinking: # if the current response chunk has thinking
+            if not in_thinking:
+                in_thinking = True
+            ai_thinking += chunk.message.thinking
+            yield {
+                'ai_response': '',
+                'ai_thinking': chunk.message.thinking,
+                'in_thinking': in_thinking,
+                'done': False
+            }
+        elif chunk.message.content: # otherwise if the current response chunk has actual response
+            if in_thinking:
+                in_thinking = False
+            ai_response += chunk.message.content
+            yield {
+                'ai_response': chunk.message.content,
+                'ai_thinking': '',
+                'in_thinking': in_thinking,
+                'done': False
+            }
 
-    # ensure return value is always a string, even if its empty
-    if not ai_thinking:
-        ai_thinking = ""
+        # the last chunk in the llm response contains the usage metrics/statistics (e.g. token count)
+        # if chunk.get('done'):
+        #     usageTokens = chunk.eval_count
+        #     promptTokens = chunk.prompt_eval_count
 
-    if not ai_response:
-        ai_response = ""
+    yield {
+        'ai_response': ai_response,
+        'ai_thinking': ai_thinking,
+        'in_thinking': False,
+        'done': True
+    }
 
-    if not context_tokens:
-        context_tokens = -1
-
-
-    return ai_response, ai_thinking, context_tokens
 
 
 
@@ -249,46 +252,68 @@ def markdownToHtml(markdownText):
     return html_output
 
 
+# def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
+#     """
+#     Combines the user input prompt and context then feeds it to the defined model using ollama's python library.
+
+#     Parameters
+#     -----------
+#         user_input: str
+#             should be a string with the literal value of the user prompt.
+#         model: str
+#             should be a string that exactly matches the available/installed ollama model.
+#         context: list
+#             should be a json array that holds all of the past prompts and responses excluding the system prompt.
+    
+#     Returns
+#     -------
+#         Returns a tuple containing the llm reponse and thinking.
+
+#         ai_response: str
+#             the literal response of the LLM
+#         ai_thinking: str
+#             the literal thinking of the LLM
+#     """
 
 
-# to keep chat history context, you must fetch all of the previous prompts and resend them
-# to the llm as part of your message.
-# NOTE: The message sent to the llm is in the form of a json array (or dict in python)
-# Ollama uses the 'role' parameter to tell the model who is speaking 
-# (i.e. user or assistant = llm)
-# a 'system' role also exists which is useful for hard-coding an important instruction
-# the system role is not meant to be used dynamically (i.e. user should not be sending
-# messages as with the role of system)
-# def generateLLMResponse(user : str, user_input : str, model : str, chatName : str):
-#     # user_input = value of a json object (equal to a string)
-#     # model = value of a json object = string
-
-#     # reconstruct a json object to hold all previous chat context
 #     messages = [{
 #         "role":  "system", "content": "Be concise. Respond in english only unless prompted." # optional, (hard-coded) high-priority instruction
 #     }]
 
-#     # fetch previous chat history and append it to the messages
-#     if user:
-#         prevContents = getChatContents(user, chatName)
-#         if prevContents:
-#             for prompt in prevContents:
-#                 messages.append({"role": "user", "content": prompt.get('message')})
-#                 messages.append({"role": "assistant", "content": prompt.get('response')})
-#         # if prevContents:
-#         #     messages.extend(prevContents) # this expands the list of messages using the previous chat contents (i.e. [{}, {}] + [{}, {}] = [{}, {}, {}, {}])
+#     if context:
+#         messages.extend(context) # combine the previous chat history with messages
 
-#     # add current user prompt/input (should be added LAST so the model sees it 
-#     # as the question and not chat history)
-#     messages.append({"role": "user", "content": user_input})
-#     chatResponse = chat(model=model, messages=messages, options={'num_ctx': 8192})
+#     # append the user prompt to the messages
+#     messages.append({
+#         "role": "user", "content": user_input
+#     })
 
-#     reasoning = chatResponse.message.thinking
-#     final_answer = chatResponse.message.content
-
-#     return final_answer, reasoning
+#     chatResponse = chat(
+#         model=model,
+#         messages=messages,
+#         options={
+#             'num_ctx':8192
+#         },
+#         stream=False
+#     )
 
 
+#     ai_response = chatResponse.message.content
+#     ai_thinking = chatResponse.message.thinking
+#     context_tokens = chatResponse.prompt_eval_count # number of tokens read and evaluated by LLM
+
+#     # ensure return value is always a string, even if its empty
+#     if not ai_thinking:
+#         ai_thinking = ""
+
+#     if not ai_response:
+#         ai_response = ""
+
+#     if not context_tokens:
+#         context_tokens = -1
+
+
+#     return ai_response, ai_thinking, context_tokens
 
 
 

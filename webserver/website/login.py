@@ -84,7 +84,6 @@ def createUserAccount():
     """
 
     data = request.get_json()
-    print("\n", data, "\n")
     username = data.get('username')
     password = data.get('password')
 
