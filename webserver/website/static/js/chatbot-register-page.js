@@ -11,7 +11,17 @@ registrationForm.addEventListener("submit", async (event) => {
 
 
     if (data.password !== data.confirm_password) {
-        document.getElementById("confirm-pass-field-error-msg").style.display = "block"; // show the passwords do not match error
+        // <p id="confirm-pass-field-error-msg" class="input-field-error-msg">   * passwords do not match</p>
+        const passwordFieldLabel = document.getElementById("confirm-pass-field-error-msg");
+        passwordFieldLabel.innerText = "   * passwords do not match";
+        passwordFieldLabel.style.display = "block"; // show the passwords do not match error
+        return; // exit immediately
+    }
+    // if the password is too small or large, show size constraints
+    else if (data.password.length < 4 || data.password.length > 32) {
+        const passwordFieldLabel = document.getElementById("pass-field-error-msg");
+        passwordFieldLabel.innerText = "    * password should be between 4 and 32 characters long";
+        passwordFieldLabel.style.display = "block"; // show the passwords do not match error
         return; // exit immediately
     }
 

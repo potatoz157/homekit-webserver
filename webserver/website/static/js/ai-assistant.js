@@ -4,6 +4,13 @@ let currentChatName = 'newchat';
 let context = [];
 const contextSize = 40; // limit number of total messages to 40 (one msg is a user input or an llm output) -- total 20 user inputs + 20 llm outputs
 
+// ping the backend periodically to check if the user is active
+// pings every 10? seconds
+setInterval(() => {
+    sendHeartbeat();
+}, 30000);
+
+
 // when AI Assistant page loads, perform the following
 document.addEventListener("DOMContentLoaded", async () => {
 
@@ -17,9 +24,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     for (const cookie of cookies) {
         const key = cookie.split("=");
 
-        if (key[0] === "login-status") {
+        if (key[0] == "login-status") {
+            console.log(cookie)
             // for the login-status cookie, its value is bool indicating whether the user is logged in
-            if (key[1]) {
+            if (key[1] == 'true') {
                 // when the user is logged in:
                 // hide the login button, show the logout button
                 document.getElementById('login-button').style.display = 'none';
@@ -42,6 +50,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 
     }
+
 
 });
 
@@ -73,11 +82,26 @@ document.getElementById("input-box").addEventListener("input", function() {
 // posts user input to backend (using another function) and updates the UI
 async function uploadText() {
 
-    const uploadTextButton = document.getElementById('upload-text-btn');
-    uploadTextButton.onclick = null; // remove attached onclick function
-
+    
     const textBox = document.getElementById("input-box");
     const userInput = textBox.value; // read and save textbox value
+    
+    // if the text box was empty, do nothing and return
+    if (userInput.length == 0) {
+        return;
+    }
+    
+    const uploadTextButton = document.getElementById('upload-text-btn');
+    // uploadTextButton.onclick = null; // remove attached onclick function
+
+    // make the upload button trigger the stop chat stream function -- interrupts the LLM response stream
+    uploadTextButton.onclick = () => {stopLLMResponse()};
+    // change uploadTextButton icon to be a stop button
+    uploadTextButton.innerText = '⏹';
+
+    // after user input is displayed, scroll to bottom of page
+    scrollToBottomOfChat();
+
     textBox.value = ""; // clear textbox
     resizeTextBox(); // update textbox UI
 
@@ -147,7 +171,7 @@ async function uploadText() {
                     if (currentChatName == "newchat" || currentChatName == null) {
                         currentChatName = data.chatname;
                     }
-                    console.log(data.status);
+                    // console.log(data.status);
                     continue;
                 }
 
@@ -155,12 +179,13 @@ async function uploadText() {
                 if (!data.done) {
                     if (data.ai_response) {
                         full_ai_response += data.ai_response;
+                        scrollToBottomOfChat();
                     }
                     if (data.ai_thinking) {
                         full_ai_thinking += data.ai_thinking;
+                        scrollToBottomOfChat();
                     }
                 }
-
                 // 3. Update the UI continuously with the latest accumulated response text
                 // Adjust this if you want to visually display thinking blocks differently
                 llmTextElement.innerText = full_ai_response;
@@ -169,6 +194,7 @@ async function uploadText() {
                 console.error("Error parsing stream chunk:", err);
             }
         }
+        scrollToBottomOfChat();
     }
     // --- END OF STREAMING LOGIC ---
 
@@ -182,7 +208,13 @@ async function uploadText() {
     }
     
     resizeTextBox(); // update textbox UI again after LLM response is fully displayed
-    uploadTextButton.onclick = () => {uploadText()}; // re-attach onclick method for upload text button
+    
+    // add slight delay to make feel more natural
+    setTimeout(() => {
+        uploadTextButton.innerText = '↑';
+        uploadTextButton.onclick = () => {uploadText()}; // re-attach onclick method for upload text button
+    }, 50);
+
 }
 
 // opens/triggers the file selection browser upon upload file button press
@@ -410,7 +442,7 @@ async function openChat(chatName) {
     }
 
 
-
+    scrollToBottomOfChat();
     
 }
 
@@ -495,6 +527,14 @@ function clearExcessCookies() {
 }
 
 
+// periodically called (using setInterval) to ping the backend as a check to see if the user is still active
+async function sendHeartbeat() {
+    const dataUrlPath = '/api/user/heartbeat';
+    sendJsonPostRequest(dataUrlPath, ""); // send empty post request to trigger heartbeat
+}
+
+
+
 // generic post request generator for json type content (currently used by the uploadText() function)
 async function sendJsonPostRequest(dataUrlPath, body) {
     
@@ -508,6 +548,30 @@ async function sendJsonPostRequest(dataUrlPath, body) {
     return response;
 }
 
+async function stopLLMResponse() {
+
+    const dataUrlPath = '/api/user/chat/inputs/cancel-response-stream/';
+    // the body does not really matter at the moment as the contents are not read in the backend...
+    body = {
+        "objective": "terminate-stream"
+    }
+    const response = await sendJsonPostRequest(dataUrlPath, body);
+
+    if (response.ok) {
+        if (response.status == "success") {
+            console.log("successfully stopped LLM output stream")
+        }
+    }
+
+}
+
+
+
+function scrollToBottomOfChat() {
+    // force page to auto scroll to the bottom on initial load
+    const currentChatContainer = document.getElementById("current-chat-container"); // already defined
+    window.scrollTo(0, currentChatContainer.scrollHeight); // scroll based on the scroll size of the chat container (the div that holds all the text)
+}
 
 // NO LONGER USED -- CONVERSION DONE IN PYTHON
 // function convertMarkdownToHtml(markdownText, containerElement) {

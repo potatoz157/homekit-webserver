@@ -3,11 +3,32 @@ from helperFunctions import getModelNames, generateLLMResponse, getUserChatHeade
 from databaseFunctions import getUser, getUserChat, addUserChat
 from databaseTables import get_engine, Message, Chat
 from sqlalchemy.orm import Session
-import json
+from chatbot import generateUserId
+from globals import getActiveUsers, getDictLock
+import json, time
 
 # all URLS inside of chat_bp will automatically have their route start with /api/ because of the 3rd argument
 # api_bp = Blueprint('api', __name__)
 api_bp = Blueprint('api', __name__, url_prefix='/api/')
+
+
+# this variable will hold each users' ID (as the key) and a json object as the value
+# the JSON object value will contain various global variables
+    # for now, the json object will only have a flag to indicate whether or not to interrupt the chat response stream
+# Example:
+# users = {
+#     'user1_uuid4': {
+#         interruptStream: False,
+#         ...
+#     },
+#     'user2_uuid4': {
+#         interruptStream: False,
+#         ...
+#     },
+#     ...
+# }
+
+
 
 
 @api_bp.post('/user/chat/inputs/')
@@ -67,8 +88,8 @@ def saveChatData():
         status_msg = "success:guest"
 
 
-    def stream_response():
-        generator = generateLLMResponse(user_input=user_message, model=model, context=context)
+    def stream_response(user_id):
+        generator = generateLLMResponse(user_input=user_message, model=model, context=context, user_id=user_id)
 
         final_response = ""
         final_thinking = ""
@@ -118,9 +139,30 @@ def saveChatData():
     #     "context_tokens": context_tokens,
     #     "chatname": chatName
     # }), 200
-    return Response(stream_response(), mimetype='text/event-stream')
+    user_id = session['user-id']
+    return Response(stream_response(user_id=user_id), mimetype='text/event-stream')
     
 
+
+@api_bp.post('/user/chat/inputs/cancel-response-stream/')
+def cancelResponseStream():
+
+    with getDictLock():
+        if 'user-id' in session:
+            user_id = session['user-id']
+            active_users = getActiveUsers()
+            active_users[user_id]['interruptChat'] = True # set the interrupt chat flag to true (will be reset to false in the LLM response stream function that checks the flag)
+
+        else:
+            print("Error: User does not have an attached ID!")
+            return jsonify({
+                "status": "failed"
+            }), 401
+
+    
+    return jsonify({
+        "status": "success"
+    }), 200
 
 
 # reads user chat history and sends it to the client side
@@ -205,6 +247,42 @@ def loadChatContents():
 def getAvailableModels():
     models = getModelNames() # models = [list of model names]
     return models, 200
+
+
+@api_bp.post('/user/heartbeat/')
+def getHeartbeat():
+
+    current_time = time.time()
+
+    # if the user has a user-id (should always be true but check anyway)
+    with getDictLock():
+        active_users = getActiveUsers()
+        if 'user-id' in session:
+            user_id = session['user-id']
+            if user_id in active_users:
+                active_users[user_id]['last-seen'] = current_time # this treats the value of 'user-id' as a json object with a key called 'last-seen' inside it
+            else:
+                active_users[user_id] = {
+                    'interruptChat': False,
+                    'last-seen': current_time
+                }
+
+
+        else:
+            print("User did not have a user-id in session, creating new id...")
+            user_id = generateUserId()
+            session['user-id'] = user_id # add it to the session
+
+            active_users[user_id] = {
+                'interruptChat': False,
+                'last-seen': current_time
+            }
+
+
+    return jsonify({
+        "status": "success"
+    })
+
 
 
 

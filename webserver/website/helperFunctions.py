@@ -4,11 +4,12 @@ from mistune.plugins.math import math
 from cv2_enumerate_cameras import enumerate_cameras
 from ollama import chat
 from datetime import datetime
-from flask import jsonify
+from flask import jsonify, session
 from databaseFunctions import getAllUserChatNames, getUserChat
 from databaseTables import get_engine
 from sqlalchemy.orm import Session
-import asyncio
+from globals import getActiveUsers, getDictLock
+# import asyncio
 
 
 # starts ollama process (ollama needs to be open to fetch available model names)
@@ -36,17 +37,20 @@ def getModelNames() -> list[str]:
 
     # openOllama() # ensure ollama process is running
 
-    list = ollama.list()
-    models = []
+    # temporarily disable all models except qwen2.5:14b-instruct
+    # list = ollama.list()
+    # models = []
 
-    
-    for modelInfo in list.get('models', []):
-        models.append(modelInfo.get('model', []))
+    # for modelInfo in list.get('models', []):
+    #     models.append(modelInfo.get('model', []))
+    # return models
+
+    models = ['qwen2.5:14b-instruct']
     return models
 
 
 # def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
-def generateLLMResponse(user_input : str, model : str, context: list) -> Generator[dict[str, str | bool]]:
+def generateLLMResponse(user_input : str, model : str, context: list, user_id) -> Generator[dict[str, str | bool]]:
     """
     Combines the user input prompt and context then feeds it to the defined model using ollama's python library.
 
@@ -102,6 +106,20 @@ def generateLLMResponse(user_input : str, model : str, context: list) -> Generat
     in_thinking = False
 
     for chunk in chatResponse:
+
+        # if the interruptChat flag is set to true, break out of the loop and return the full response made up to now
+        with getDictLock():
+            # user_id = session['user-id'] # this causes an error -- cannot access session inside a generator?
+            active_users = getActiveUsers()
+            user_data = active_users.get(user_id)
+            # if the user data was deleted (by the cleanup thread) or the interruptChat flag is set, break
+            if not user_data:
+                break
+            elif user_data.get('interruptChat'):
+                user_data['interruptChat'] = False # reset the flag if the user data exists
+                break
+
+
         if chunk.message.thinking: # if the current response chunk has thinking
             if not in_thinking:
                 in_thinking = True

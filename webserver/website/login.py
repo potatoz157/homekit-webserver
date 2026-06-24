@@ -94,19 +94,18 @@ def createUserAccount():
     with Session(engine) as sesh: 
     # attempts to fetch user from database, if not found, user = None
     # full_load determines if all of the chats and files will be forced to load with the user (False=do not load everything)
-        result = addUser(session=sesh, username=username, password=hashedPassword) # result = false if failed
-
+        result, __ = addUser(session=sesh, username=username, password=hashedPassword) # result = false if failed
     # if user already exists, return user exists error
     if not result: # result = false if failed to add user
-        return jsonify({
-            'status': 'error-user-exists'
-        }), 400
+        response = jsonify({'status': 'error-user-exists'})
+        response.set_cookie(key="login-status", value='false', samesite='Lax')
+        return response, 400
 
 
     # if a user was successfully added, also login the user
     session['username'] = username
     response = jsonify({"status": "success"})
-    response.set_cookie("login-status", 'true', samesite='Lax')
+    response.set_cookie(key="login-status", value='true', samesite='Lax')
 
     return response, 200
 

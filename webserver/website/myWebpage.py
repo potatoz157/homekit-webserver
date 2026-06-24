@@ -1,10 +1,13 @@
 from flask import Flask, render_template, request, jsonify, Response, session, redirect, url_for, make_response
 from helperFunctions import openOllama
 from databaseTables import init_db
+import threading
 
 from login import login_bp
 from apiCalls import api_bp
 from chatbot import chatbot_bp
+
+from globals import cleanupActiveUsers
 
 
 app = Flask(
@@ -25,6 +28,15 @@ def init():
     openOllama()
     init_db() # creates database and tables if missing
 
+    threads = []
+
+    cleanup_thread = threading.Thread(target=cleanupActiveUsers, daemon=True)
+    threads.append(cleanup_thread)
+
+    cleanup_thread.start()
+
+    return threads # optionally return the list of threads used
+
 
 @app.route('/')
 def openHome():
@@ -44,7 +56,7 @@ def openSecurityCameraPage():
 
 if __name__ == '__main__':
     index = 0
-    init()
+    threads = init() # init returns a list of threads that were created and started (if any)
     # cap = openCamera(index)
     print("\n\nTo connect (via wifi) use Wifi IPv4 (default): 192.168.1.167:5000\n")
     app.run(debug=False, host="0.0.0.0", port=5000)

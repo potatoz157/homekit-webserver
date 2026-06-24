@@ -35,9 +35,9 @@ class Chat(Base):
 
 
     # make virtual shortcut to see all messsages, files in this chat
+    user: Mapped["User"] = relationship(back_populates="chats") # shortcut to see user for this chat
     messages: Mapped[List["Message"]] = relationship(back_populates="chat", cascade="all, delete-orphan", order_by="Message.ID")
     files: Mapped[List["FileUpload"]] = relationship(back_populates="chat", cascade="all, delete-orphan")
-    user: Mapped["User"] = relationship(back_populates="chats") # shortcut to see user for this chat
 
 # create table to hold chat messages
 class Message(Base):
@@ -65,18 +65,24 @@ class FileUpload(Base):
     chat_ID: Mapped[int] = mapped_column(ForeignKey("chats.ID"), nullable=False)
 
     file_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    file_data: Mapped[Optional[bytes]] = mapped_column(BLOB, nullable=True) # allow nullable content/data (i.e. empty raw binary)
+    file_binary_data: Mapped[Optional[bytes]] = mapped_column(BLOB, nullable=True) # allow nullable content/data (i.e. empty raw binary)
+    # timestamp: Mapped[str] = mapped_column(Text, nullable=False) # timestampt of file creation
 
     # Virtual Shortcuts
     chat: Mapped["Chat"] = relationship(back_populates="files")
 
-# # create table to hold RAG file upload text embeddings
+# create table to hold RAG file upload text embeddings
 # class Embeddings(Base):
-#     __tablename__ = "embeddings"
+#     __tablename__ = "text_embeddings"
 
-#     ID: Mapped[int] = mapped_column(primary_key=True)
+#     ID: Mapped[int] = mapped_column(primary_key=True) # primary key
+    
+#     text_embedding: Mapped[list[float]] = mapped_column(nullable=False)
+    
+#     chat_ID: Mapped[int] = mapped_column(ForeignKey("chats.ID"), nullable=False) # foreign key
 
-#     # finish the table definition ........
+#     # Virtual Shortcuts
+#     chat: Mapped["Chat"] = relationship(back_populates="files")
 
 engine = None
 

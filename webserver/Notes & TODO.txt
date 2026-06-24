@@ -49,21 +49,20 @@ File Input Analysis:
 
 
 TODO:
- - MODIFY Database scheme:
-    - keep past 'N' messages in RAM (do not continuously read from the chat history to grab context, just keep it in USER client side RAM)
-    - for every user input, wait for LLM response to finish, then append it to given chat history database and RAM cache up to N messages
-        - if messages > N, remove oldest message and add new one
-    - when opening an existing chat, load past 'N' messages into user RAM
-    - past 'N' messages act as the context -- N is limited by the backend VRAM or model's max context window 
+ - change database scheme from sqlite to postgresql! --> this will make it easier to store vector embeddings (requires simple extension rather than full custom workaround and more scalable)
+ - Implement API request rate limits on a user bases, e.g. 10 requests/min per api per user
+ - Add RAG Database table
+ - Implement image input capability (maybe part of RAG?)
+    - Input image, use model that takes image inputs and outputs text describing the image
+    - get the text and feed it to the main LLM (instead of feed the actual image to the main LLM)
+    - allows all LLM models to 'see' images, but may loose detail
+    - Look into feasibility of this...
 
  - Implement markdown and latex parsing to HTML for proper formatting
     - WARNING: CURRENT IMPLEMENTATION ENABLES XSS INJECTION (BY LLM RESPONSE)!
  - Implement File Input Analysis
     - Look into RAG or LLM WIKI for methods of storing file information for LLM use (decide which to use (maybe even both?))
- - Implement new chat button
  - implement delete chat button
- - convert backend storage to a database (instead of JSON files)
- - encrypt user password before sending over post request -- store encrypted version of password
  - implement search option to search existing chats
  - implement auto title generation for chats rather than naming them 'chatHistory0' for example (OR name chats based on the used model and time of creation -- or some other titling method)
  - implement file gallery button to view all uploaded files for the user
