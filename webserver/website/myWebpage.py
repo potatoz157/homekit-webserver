@@ -17,7 +17,7 @@ app = Flask(
     # static_url_path=''
 )
 
-# register the routes (i.e. app.route, app.get, etc. from other define python scripts
+# register the routes i.e. app.route, app.get, etc. from other defined python scripts
 app.register_blueprint(login_bp) 
 app.register_blueprint(api_bp)
 app.register_blueprint(chatbot_bp)

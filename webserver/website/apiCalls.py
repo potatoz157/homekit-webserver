@@ -1,11 +1,12 @@
 from flask import Blueprint, request, session, jsonify, Response
-from helperFunctions import getModelNames, generateLLMResponse, getUserChatHeaders, getChatContents, markdownToHtml, generateChatName
-from databaseFunctions import getUser, getUserChat, addUserChat
+from helperFunctions import getModelNames, generateLLMResponse, getUserChatHeaders, getChatContents, generateChatName
+from databaseFunctions import getUser, getUserChat, addUserChat, addFileToChat, addAllFileEmbeddings
 from databaseTables import get_engine, Message, Chat
 from sqlalchemy.orm import Session
 from chatbot import generateUserId
-from globals import getActiveUsers, getDictLock
+from globals import getActiveUsers, getDictLock, addUserToGlobals
 import json, time
+from rag import CustomEmbedder, chunkifyDoc
 
 # all URLS inside of chat_bp will automatically have their route start with /api/ because of the 3rd argument
 # api_bp = Blueprint('api', __name__)
@@ -30,9 +31,8 @@ api_bp = Blueprint('api', __name__, url_prefix='/api/')
 
 
 
-
 @api_bp.post('/user/chat/inputs/')
-def saveChatData():
+def handleUserInputPrompt():
     # data should have the form of a json where:
     # {
     #     "message": "user input/prompt message",
@@ -45,11 +45,16 @@ def saveChatData():
     context = data.get('context')   # context needs to be in the format of a json array!
     chatName = data.get('chatname')
     model = data.get('model')
+    allowAgent = data.get('allow_agent') # if this is true, then tools will be fed into the model, otherwise, the model will not have access to tools
 
     chat_id = None # track the chat ID across different sessions
 
     # logged in chat response behavior
     if 'username' in session:
+        if chatName == "newchat":
+            chatName = generateChatName(chatName=chatName, model=model)
+
+
         # chat = None
         username = session.get('username')
         assert username
@@ -69,7 +74,7 @@ def saveChatData():
         # if no chat was found, create a new chat and append the user input to the chat
         else:
             with Session(get_engine()) as sesh:
-                chatName = generateChatName(chatName=chatName, model=model)
+                # chatName = generateChatName(chatName=chatName, model=model)
                 chat_added, new_chat = addUserChat(session=sesh, username=username, chatName=chatName, model=model)
                 if (chat_added and new_chat): # if a new chat was successfully made, save the user input prompt to the chat's messages
                     new_chat.messages.append(Message(role="user", contents=user_message))
@@ -89,10 +94,11 @@ def saveChatData():
 
 
     def stream_response(user_id):
-        generator = generateLLMResponse(user_input=user_message, model=model, context=context, user_id=user_id)
+        generator = generateLLMResponse(user_input=user_message, model=model, context=context, user_id=user_id, agent_mode=allowAgent)
 
         final_response = ""
         final_thinking = ""
+        tool_content = ""
 
         # send the initial response back to frontend so that the frontend has the new chat name and status before waiting for LLM stream
         init_payload = {
@@ -104,10 +110,23 @@ def saveChatData():
 
         yield f"data: {json.dumps(init_payload)}\n\n"
 
+        lastChunk = None
         for data_chunk in generator:
             # Format and stream the current chunk directly to the frontend
-            yield f"data: {json.dumps(data_chunk)}\n\n"
-            
+            lastChunk = data_chunk.copy() # save a copy so that we can access the LAST chunk outputs
+
+            # only send the data back to the frontend if the chunk does not contain a tool call -- later see if we can disable 
+            # streaming to frontend entirely (for trip 1) when a tool call is made rather than relying on a random intermediate chunk
+            if not allowAgent or not data_chunk.get('tool_calls'): # if tool calls are not allowed or the current chunk does not have any tool calls, send the current LLM response chunk to the user 
+                format_data_chunk = {
+                    'ai_response': data_chunk.get('ai_response'),
+                    'ai_thinking': data_chunk.get('ai_thinking'),
+                    'in_thinking': data_chunk.get('in_thinking'),
+                    'done': data_chunk.get('done')
+                }
+                yield f"data: {json.dumps(format_data_chunk)}\n\n"
+
+
             # Capture the aggregate results for database storage
             if data_chunk.get('ai_response'):
                 assert isinstance(data_chunk['ai_response'], str)
@@ -116,7 +135,46 @@ def saveChatData():
                 assert isinstance(data_chunk['ai_thinking'], str)
                 final_thinking += data_chunk['ai_thinking']
 
+        # if the last chunk's tool_calls attribute contains anything, assemble the tool_call message and generate another LLM response using the tool outputs
+        assert lastChunk
+        if allowAgent and lastChunk.get('tool_calls'):
+            # append LLM decision to call the tool to context
+            context.append({
+                'role': 'assistant',
+                'thinking': final_thinking,
+                'content': final_response,
+                'tool_calls': lastChunk['tool_calls']
+            })
+            # append tool call results to context
+            context.extend(lastChunk.get('tool_outputs'))
 
+            # later, save the LLM tool call decision and tool outputs to the database HERE!!!
+
+            # reset the LLM outputs
+            final_response = ""
+            final_thinking = ""
+
+            # generate a new LLM response by feeding it the new context that has the tool calls and outputs -- the response to the tool outputs is what streams to the user
+            trip2_generator = generateLLMResponse(user_input="", model=model, context=context, user_id=user_id, agent_mode=allowAgent)
+
+            for chunk in trip2_generator:
+                format_data_chunk = {
+                    'ai_response': chunk.get('ai_response'),
+                    'ai_thinking': chunk.get('ai_thinking'),
+                    'in_thinking': chunk.get('in_thinking'),
+                    'done': chunk.get('done')
+                }
+                yield f"data: {json.dumps(format_data_chunk)}\n\n"
+
+                # Capture the aggregate results for database storage
+                if chunk.get('ai_response'):
+                    assert isinstance(chunk['ai_response'], str)
+                    final_response += chunk['ai_response']
+                if chunk.get('ai_thinking'):
+                    assert isinstance(chunk['ai_thinking'], str)
+                    final_thinking += chunk['ai_thinking']
+
+        # save the final answer (LLM response to the tool outputs) to the database
         if chat_id:
             with Session(get_engine()) as sesh:
                 db_chat = sesh.query(Chat).get(chat_id)
@@ -140,12 +198,14 @@ def saveChatData():
     #     "chatname": chatName
     # }), 200
     user_id = session['user-id']
+
+
     return Response(stream_response(user_id=user_id), mimetype='text/event-stream')
     
 
 
 @api_bp.post('/user/chat/inputs/cancel-response-stream/')
-def cancelResponseStream():
+def cancelLLMResponseStream():
 
     with getDictLock():
         if 'user-id' in session:
@@ -167,7 +227,7 @@ def cancelResponseStream():
 
 # reads user chat history and sends it to the client side
 @api_bp.get('/user/chat/history/')
-def loadPreviousChats():
+def getListOfPreviousChats():
     if 'username' in session:
         user = session['username']
         history = getUserChatHeaders(user)
@@ -206,7 +266,7 @@ def loadPreviousChats():
 
 
 @api_bp.get('/user/chat/history/contents')
-def loadChatContents():
+def getChatMessages():
     # sends the entire chat contents back to the user
     # the selected chat is defined in the cookies sent by the user
     chat_name = request.cookies.get('chat-name')
@@ -250,7 +310,7 @@ def getAvailableModels():
 
 
 @api_bp.post('/user/heartbeat/')
-def getHeartbeat():
+def handleHeartbeat():
 
     current_time = time.time()
 
@@ -284,7 +344,142 @@ def getHeartbeat():
     })
 
 
+@api_bp.post('/user/file/upload/')
+def saveFileUpload():
+    """
+    Handles POST requests from user that holds the uploaded files
+    """
+    max_instantaneous_uploads = 4
 
+    # allow text files, pdfs, markdown, python scripts, matlab scripts, ...
+    acceptableFileTypes = ['.txt', '.pdf', '.md', '.py', '.m']
+    
+    # the request contains a FileList object from the client side, parse through each file and verify if it actually contains files
+    fileList = request.files.getlist('files')
+
+    # do not allow more than 4 files to be uploaded at once
+    if (len(fileList) > max_instantaneous_uploads):
+        return jsonify({
+            "status": "failed:too-many-files",
+        }), 401
+
+    # first, check if user is logged in (username is in session)
+    if 'username' in session and request.files:
+        # check if username is valid:
+        with Session(get_engine()) as sesh:
+            username = session['username']
+            validUser = getUser(session=sesh, username=username, full_load=False)
+            # next check if the username is actually valid
+            if validUser:
+
+                chatName = request.form.get('chatname') # extract the chatname from the form data
+
+                # check if the chatName is valid (exists in the database)
+                assert chatName # assume chatname is valid
+                validChat = getUserChat(session=sesh, username=username, chatName=chatName)
+                if not validChat: # create the chat if not valid -- for now just cause an error <============================ FIX THIS LATER ======================================
+                    print(f"\nERROR: CHAT '{chatName}' DOES NOT EXIST!\nFailed to upload files: \n{fileList}")
+                    return jsonify({
+                        "status": "failed:invalid-chatname",
+                        "chatname": chatName
+                    }), 400
+
+                # check if every file is valid -- fails immediately (without saving any files) if any file is invalid
+                for file in fileList:
+                    fileName = file.filename
+                    assert fileName
+                    extension = "." + fileName.split('.').pop() # grab just the extension of the file
+                    
+                    # if a single file type is invalid, exit and do not save any of the given files (maybe change this later so only the unsupported file is rejected)
+                    if extension not in acceptableFileTypes:
+                        print("Error: Invalid file type uploaded: ", extension)
+                        return jsonify({
+                            "status": "failed:invalid-file-type",
+                            "filetype": extension
+                        }), 400
+                    
+                    # if all files are supported, save them to the database for the given user
+                    # validUser.chats
+
+                # at this point, all of the files are supported and can now be stored into the database. Later, sanitize the file names before storing them for enhanced security.
+                # Later, combine the file saving loop with the supported file checking loop
+                with Session(get_engine()) as sesh:
+                    embedder = CustomEmbedder()
+                    # assert validChat
+                    existingFiles = validChat.files
+                    failedFiles = []
+
+                    for fileItem in fileList:
+                        assert chatName
+                        fileAdded = None # boolean indicating if the file was successfully added to the chat
+                        if fileItem not in existingFiles:
+                            fileAdded = addFileToChat(session=sesh, username=username, chatName=chatName, flask_file=fileItem)
+                            if not fileAdded: # if storing the file into database fails, skip chunking for that file
+                                failedFiles.append(chatName)
+                                continue
+
+                            # here, we will start a thread that takes the current file object, splits it into chunks gets their embeddings and stores it in the database
+                            # ================================= LATER, MAKE THIS PART ASYNCHRONOUS SO IT DOES NOT BLOCK THE MAIN THREAD!!!! =================================
+                            text_chunks = chunkifyDoc(fileItem)
+                            embeddings = embedder.embed_documents(text_chunks)
+                            # print(f"Chunk count: {len(text_chunks)}\nEmbedding Count: {len(embeddings)}")
+                            addAllFileEmbeddings(session=sesh, file_obj=fileAdded, embeddings=embeddings, raw_text=text_chunks)
+                            # ===============================================================================================================================================
+
+
+
+                    if (failedFiles and len(failedFiles) == len(fileList)):
+                        return jsonify({
+                            "status": "failed:no-saved-files"
+                        }), 400
+                    elif (failedFiles and len(failedFiles) > 0):
+                        return jsonify({
+                            "status": "failed:partially-saved-files",
+                            "failed-files": failedFiles
+                        }), 400
+
+                return jsonify({
+                    "status": "success"
+                }), 200
+    # otherwise, do nothing and return
+    # else:
+    return jsonify({
+        "status": "failed:not-logged-in"
+    }), 400
+
+@api_bp.post('/user/chat/request-new-name/')
+def createNewChatName():
+    """
+    If the user is logged in as a valid user, generates a new chat name and returns it.
+
+    If the user is a guest, the chat name returned is 'guestchat'.
+
+    If the user is logged in but is not a valid user, the request fails.
+    """
+
+
+    if 'username' in session:
+        user = session['username']
+        
+        with Session(get_engine()) as sesh:
+            if (getUser(session=sesh, username=user, full_load=False)): # check if the current username is a valid user
+                data = request.get_json()
+                chatname = data.get('chatName')
+                newName = generateChatName(chatName=chatname, model=data.get('model')) # generate the chatname using the model and current chatname
+                return jsonify({
+                    "status": "success",
+                    "newChatName": newName
+                }), 200
+            else:
+                print("User is not valid!")
+    else:
+        return jsonify({
+            "status": "success",
+            "newChatName": 'guestchat'
+        }), 200
+    return jsonify({
+        "status": "failed"
+    }), 400
 
 
 

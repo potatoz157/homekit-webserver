@@ -13,7 +13,14 @@ def getDictLock() -> threading.Lock:
 def getActiveUsers() -> dict:
     return active_users
 
-
+def addUserToGlobals(user_id : str):
+    
+    with dict_lock:
+        active_users[user_id] = {
+            'interruptChat': False,
+            'last-seen': time.time()
+        }
+        return len(str(active_users[user_id])) > 0
 
 
 # this will be called on a thread by the main python script
@@ -28,11 +35,13 @@ def cleanupActiveUsers():
 
 
 
-    timeout_seconds = 30 # define how long a user can go without pinging the backend and still have their user_ID saved (in the global dictionary)
+    timeout_seconds = 31 # define how long a user can go without pinging the backend and still have their user_ID saved (in the global dictionary)
     while True:
-        time.sleep(timeout_seconds)
+        time.sleep(timeout_seconds/2)
         current_time = time.time()
         expired_ids = []
+        
+        print("Current global dict (prior to update): ", active_users) # debug line
 
         with dict_lock:
             for user_id, info in active_users.items():

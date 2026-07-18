@@ -1,7 +1,7 @@
 import json, os, cv2, mistune, re
 from collections.abc import Generator
 from mistune.plugins.math import math
-from cv2_enumerate_cameras import enumerate_cameras
+# from cv2_enumerate_cameras import enumerate_cameras
 from ollama import chat
 from datetime import datetime
 from flask import jsonify, session
@@ -10,6 +10,14 @@ from databaseTables import get_engine
 from sqlalchemy.orm import Session
 from globals import getActiveUsers, getDictLock
 # import asyncio
+
+# the tools.py script contains the tool definitions/implementations
+# To add more tools:
+# 1. Import the tool (function) here
+# 2. Add the tool/function name to the tools list fed into the ollama.chat() function
+# 3. Add another elif to handle the tool function output and append it to the tool_outputs list
+from tools import get_time, get_date, add
+
 
 
 # starts ollama process (ollama needs to be open to fetch available model names)
@@ -35,9 +43,9 @@ def openOllama():
 def getModelNames() -> list[str]:
     import ollama
 
-    # openOllama() # ensure ollama process is running
+    openOllama() # ensure ollama process is running
 
-    # temporarily disable all models except qwen2.5:14b-instruct
+    # # temporarily disable all models except qwen2.5:14b-instruct
     # list = ollama.list()
     # models = []
 
@@ -50,7 +58,7 @@ def getModelNames() -> list[str]:
 
 
 # def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
-def generateLLMResponse(user_input : str, model : str, context: list, user_id) -> Generator[dict[str, str | bool]]:
+def generateLLMResponse(user_input : str, model : str, context: list, user_id : int, agent_mode : bool) -> Generator[dict[str, str | bool | list]]:
     """
     Combines the user input prompt and context then feeds it to the defined model using ollama's python library.
 
@@ -87,14 +95,33 @@ def generateLLMResponse(user_input : str, model : str, context: list, user_id) -
 
 
     # append the user prompt to the messages
-    messages.append({
-        "role": "user", "content": user_input
-    })
+    if user_input and user_input!="":
+        messages.append({
+            "role": "user", "content": user_input
+        })
 
+
+    # Later when implementing tool access, pass in the tools as a list of function names. For example:
+    # NOTE: Ollama knows how to use the function based on the function description. So you MUST include text that states when to use the function
+    # and how to use the function (i.e. what the arguments and the return value(s) are). Enforce argument and return types as well.
+    # def get_time():
+    #     return current_time()
+    # To make this function a tool the LLM can use, you must pass it into the 'tools=' argument for the ollama chat() object:
+    # response = chat(
+        # ...,
+        # tools=[get_time], # 
+        # ...
+    # )
+    
+    tools = []
+    if agent_mode:
+        tools = [get_time, get_date, add]   # to add more tools, append to the list of tools HERE
+        
 
     chatResponse = chat(
         model=model,
         messages=messages,
+        tools=tools, 
         options={
             'num_ctx':8192
         },
@@ -104,6 +131,8 @@ def generateLLMResponse(user_input : str, model : str, context: list, user_id) -
     ai_response = ""
     ai_thinking = ""
     in_thinking = False
+
+    tool_calls = []
 
     for chunk in chatResponse:
 
@@ -140,20 +169,43 @@ def generateLLMResponse(user_input : str, model : str, context: list, user_id) -
                 'in_thinking': in_thinking,
                 'done': False
             }
+        # check if the chunk contains tool call(s) and add them to the list of tool calls
+        if chunk.message.tool_calls:
+            tool_calls.extend(chunk.message.tool_calls)
 
         # the last chunk in the llm response contains the usage metrics/statistics (e.g. token count)
         # if chunk.get('done'):
         #     usageTokens = chunk.eval_count
         #     promptTokens = chunk.prompt_eval_count
 
+    # handle the literal function/tool calls here -- to add more tools, fetch and format the results HERE
+    tool_outputs = []
+    if tool_calls:
+        for call in tool_calls:
+            if call.function.name == 'get_time':
+                result = get_time(**call.function.arguments)
+            elif call.function.name == 'get_date':
+                result = get_date(**call.function.arguments)
+            elif call.function.name == 'add':
+                result = add(**call.function.arguments)
+            else:
+                result = 'unknown tool'
+            tool_outputs.append({
+                'role': 'tool',
+                'tool_name': call.function.name,
+                'content': result
+            })
+
+
+
     yield {
         'ai_response': ai_response,
         'ai_thinking': ai_thinking,
         'in_thinking': False,
+        'tool_calls': tool_calls,
+        'tool_outputs': tool_outputs,
         'done': True
     }
-
-
 
 
 # this function should only be called with a valid user (and not a guest account)
@@ -192,8 +244,6 @@ def getUserChatHeaders(user):
     # return chatList
 
 
-
-
 # fetches the full contents of a specific chat for the given user
 def getChatContents(user : str, chatName : str) -> tuple[list, str]:
     
@@ -228,12 +278,6 @@ def getChatContents(user : str, chatName : str) -> tuple[list, str]:
         return chat_contents, model
 
 
-
-
-
-
-
-
 def generateChatName(chatName: str, model: str) -> str: 
 
     # the format of the resulting chat name will be:
@@ -250,24 +294,24 @@ def generateChatName(chatName: str, model: str) -> str:
     return chatName 
 
 
-def markdownToHtml(markdownText):
-    if not markdownText:
-        return ""
+# def markdownToHtml(markdownText):
+#     if not markdownText:
+#         return ""
     
-# 1. Fix Block Math: Convert [ ... ] to $$ ... $$
-    # This now allows for any spaces/tabs before the opening bracket and clears them out
-    fixed_text = re.sub(r'(?m)^[ \t]*\[\s*([\s\S]*?)\s*\]', r'$$\n\1\n$$', markdownText)
+# # 1. Fix Block Math: Convert [ ... ] to $$ ... $$
+#     # This now allows for any spaces/tabs before the opening bracket and clears them out
+#     fixed_text = re.sub(r'(?m)^[ \t]*\[\s*([\s\S]*?)\s*\]', r'$$\n\1\n$$', markdownText)
     
-    # 2. Fix Inline Math: Convert ( ... ) to $ ... $
-    fixed_text = re.sub(r'\(\s*([\s\S]*?)\s*\)', r'$\1$', fixed_text)
+#     # 2. Fix Inline Math: Convert ( ... ) to $ ... $
+#     fixed_text = re.sub(r'\(\s*([\s\S]*?)\s*\)', r'$\1$', fixed_text)
     
-    # 3. Parse the Markdown safely to HTML
-    mardownParser = mistune.create_markdown(plugins=[math])
+#     # 3. Parse the Markdown safely to HTML
+#     mardownParser = mistune.create_markdown(plugins=[math])
 
-    # print(fixed_text)
-    html_output = mardownParser(fixed_text)
+#     # print(fixed_text)
+#     html_output = mardownParser(fixed_text)
 
-    return html_output
+#     return html_output
 
 
 # def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:

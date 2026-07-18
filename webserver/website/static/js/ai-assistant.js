@@ -2,10 +2,70 @@ let cachedModels = null; // used to store and compare previously models availabl
 let currentModel = 'qwen2.5:14b-instruct';
 let currentChatName = 'newchat';
 let context = [];
+let agentMode = false;
 const contextSize = 40; // limit number of total messages to 40 (one msg is a user input or an llm output) -- total 20 user inputs + 20 llm outputs
 
+// this will act as a 'queue' for the FormData object that is to be sent (when a user uploads files) with the next 
+// user prompt (when the user presses 'enter' or submit text button, prompt CAN be empty)
+let fileFormData = null;
+
+const dropbox = document.getElementById("dropbox");
+
+// dropbox.addEventListener("dragenter", dragenter);
+dropbox.addEventListener("dragover", dragover);
+dropbox.addEventListener("dragleave", dragleave);
+dropbox.addEventListener("drop", drop);
+
+
+
+// function dragenter(e) {
+//     e.stopPropagation();
+//     e.preventDefault();
+// }
+
+
+function dragover(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    // console.log(e);
+    const dt = e.dataTransfer;
+
+    // trigger UI changes if the dragged elements are actually files
+    if (dt.types && dt.types.includes('Files')) {
+        // dropbox.style.backgroundColor = "red";
+        document.getElementById('overlay').style.display = "block";
+    }
+
+    // const dropbox = document.getElementById("dropbox");
+    // dropbox.style.backgroundColor = "red";
+}
+
+function drop(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const dt = e.dataTransfer;
+    const files = dt.files;
+
+    prepareUploadFile(files);
+
+    dragleave(e); // also trigger UI updates in dragleave function
+}
+
+function dragleave(e) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    // dropbox.style.backgroundColor = "black"
+    document.getElementById('overlay').style.display = "none";
+}
+
+
+
+
 // ping the backend periodically to check if the user is active
-// pings every 10? seconds
+// pings every X seconds (the argument is in ms, so 60000 = 60 seconds)
 setInterval(() => {
     sendHeartbeat();
 }, 30000);
@@ -13,43 +73,65 @@ setInterval(() => {
 
 // when AI Assistant page loads, perform the following
 document.addEventListener("DOMContentLoaded", async () => {
+    sendHeartbeat();
 
     // ensure the selected model (icon) matches that of the one present in the code
     selectModel(currentModel);
 
-    // document.cookie returns a string of all the cookies in key value pairs separated by semicolons
-    // e.g. "cookie1=value; cookie2=value; ..."
-    const cookies = document.cookie.split("; "); // split all cookies --> cookies = list of strings, each element = one cookie
+    if (userIsLoggedIn()) {
+        // when the user is logged in:
+        // hide the login button, show the logout button
+        document.getElementById('login-button').style.display = 'none';
+        document.getElementById('login-button-link').style.display = 'none';
 
-    for (const cookie of cookies) {
-        const key = cookie.split("=");
-
-        if (key[0] == "login-status") {
-            console.log(cookie)
-            // for the login-status cookie, its value is bool indicating whether the user is logged in
-            if (key[1] == 'true') {
-                // when the user is logged in:
-                // hide the login button, show the logout button
-                document.getElementById('login-button').style.display = 'none';
-                document.getElementById('login-button-link').style.display = 'none';
-
-                document.getElementById('logout-button').style.display = 'block';
-                document.getElementById('logout-button-link').style.display = 'block';
-
-            } 
-            // if user is not logged in, show login button, hide logout button
-            else {
-                document.getElementById('login-button').style.display = 'block';
-                document.getElementById('login-button-link').style.display = 'block';
-                
-                document.getElementById('logout-button').style.display = 'none';
-                document.getElementById('logout-button-link').style.display = 'none';
-            }
-            break;
-        }
-
-
+        document.getElementById('logout-button').style.display = 'block';
+        document.getElementById('logout-button-link').style.display = 'block';
     }
+    else {
+        document.getElementById('login-button').style.display = 'block';
+        document.getElementById('login-button-link').style.display = 'block';
+                        
+        document.getElementById('logout-button').style.display = 'none';
+        document.getElementById('logout-button-link').style.display = 'none';
+    }
+
+
+});
+
+document.addEventListener("keydown", function(event) {
+    
+    // skip the auto focus if the tab key is pressed or enter is pressed
+    // if (event.key == 'Tab' || event.key == 'Enter') {
+    //     return;
+    // }
+    
+    const textBox = document.getElementById("input-box");
+
+    // const isCharKey = /^[a-zA-Z0-9]$/.test(event.key);
+    const excludedKeys = [
+        'Control', 'Shift', 'Alt', 'Tab', 'CapsLock', 'Meta',
+        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+    ]
+
+    // check to see if a control key is currently being held (like when doing ctrl-c)
+    const isModifierKeyPressed = event.getModifierState('Control') ||
+                                 event.getModifierState('Shift') ||
+                                 event.getModifierState('Alt');
+
+    // if the pressed key is not a character/symbol (i.e. a control key, such as 'Shift' or 'Control'), do nothing and exit
+    if (excludedKeys.includes(event.key) || isModifierKeyPressed) {
+        // console.log("Control key pressed!", event.key)
+        return;
+    }
+
+
+    // focus the textbox and close the dropdown menu (if open)
+    textBox.focus();
+    const dropdown = document.getElementById("model-dropdown");
+    if (dropdown && dropdown.classList.contains("show")) {
+        dropdown.classList.remove("show");
+    };
+    // textBox.value += event.key;
 
 
 });
@@ -79,14 +161,55 @@ document.getElementById("input-box").addEventListener("input", function() {
     resizeTextBox();
 });
 
+
+// enable/disable tool calling using the slider -- LATER, implement the enable/disable feature in the backend so it actual disables the tools!
+document.getElementById("agentic-mode-toggle-checkbox").addEventListener('change', (event) => {
+    // event.stopPropagation();
+
+    const checkbox = document.getElementById("agentic-mode-toggle-checkbox");
+    const button = document.getElementById("agentic-mode-button");
+
+    // checkbox.checked = !checkbox.checked;
+    // Action when checked -- enable agentic mode (allow tool use)
+    if (event.target.checked) {
+        agentMode = true;
+        checkbox.style.marginRight = '0';
+        checkbox.style.marginLeft = 'auto';
+        button.style.backgroundColor = "rgb(94, 221, 94)";
+        // console.log("Active")
+    }
+    // Action when unchecked -- disable agentic mode (disable tool use, acts as chatbot only)
+    else {
+        agentMode = false;
+        checkbox.style.marginRight = 'auto';
+        checkbox.style.marginLeft = '0';
+        button.style.backgroundColor = "lightgray";
+        // console.log("Inactive")
+    }
+});
+
+// this function is triggered when the user presses the slider button for toggling agentic mode.
+function updateSlider() {
+    const checkbox = document.getElementById("agentic-mode-toggle-checkbox");
+    checkbox.checked = !checkbox.checked; // toggle slider
+    // trigger checkbox event listener
+    const event = new Event('change');
+    checkbox.dispatchEvent(event);
+}
+
 // posts user input to backend (using another function) and updates the UI
 async function uploadText() {
 
     
     const textBox = document.getElementById("input-box");
     const userInput = textBox.value; // read and save textbox value
+
+    // if there are files to upload, upload them then deal with the user prompt, later maybe send both in the same post request
+    if (fileFormData !== null) {
+            uploadQueuedFiles(); // automatically clears the queued fileFormData variable
+        }
     
-    // if the text box was empty, do nothing and return
+    // if the text box was empty then do nothing
     if (userInput.length == 0) {
         return;
     }
@@ -125,7 +248,8 @@ async function uploadText() {
         message: userInput,
         model: currentModel,
         chatname: currentChatName,
-        context: context
+        context: context,
+        allow_agent: agentMode
     });
 
     // append user input to the context field after the context has been sent (prevent duplication of user input)
@@ -222,22 +346,103 @@ function triggerFilePicker() {
     document.getElementById("upload-file-input").click();
 }
 
-// uploads the literal file (incomplete, this should later post the file to the backend)
-function uploadFile(inputElement) {    
+// uploads the literal file and triggers UI changes
+async function prepareUploadFile(inputElement) {
+
     
-    if (inputElement.files && inputElement.files[0]) {
-        const file = inputElement.files[0];
-
-        console.log("File was input. File name = ", file.name);
-
-
-        // place code for file upload to backend here
+    if (!userIsLoggedIn()) {
+        uploadFileUiUpdate("failed:not-logged-in");
+        return;
+    }
 
 
+    let fileList = null;
+
+    // when the user uploads files using the upload button, the inputElement has a .files property (the inputElement is the literal html <input> element that calls this function)
+    if (inputElement.files && inputElement.files.length > 0) {
+        fileList = inputElement.files;
         inputElement.value = '';
+    }
+    // when the user uploads files by drag and drop, the input element is a FileList object
+    else if (inputElement instanceof FileList){
+        fileList = inputElement;
+    }
+    else {
+        console.log("Error: prepareUploadFile() failed due to unknown inputElement argument type: ", inputElement);
+    }
+
+    const dataToSend = new FormData();
+    // dataToSend.append('fileList', fileList);
+    const fileIconContainer = document.getElementById("file-upload-icons-container");
+    const clearIconBtn = document.getElementById("file-icon-clear-button");
+    // for every file, append it to the FormData.files object and generate a file upload icon
+    for (file of fileList) {
+        dataToSend.append('files', file);
+        const extension = getFileNameExtension(file.name);
+        if (extension) {
+            const fileIcon = document.createElement('p'); // create new p tag for file icon
+            fileIcon.className = 'file-icon'; // apply file icon CSS using the class name
+            fileIcon.innerText = extension.toUpperCase();; // set the icon string
+            fileIconContainer.appendChild(fileIcon); // add the new icon to the icon container
+            fileIconContainer.moveBefore(fileIcon, clearIconBtn); // append the new node right before the clear button
+        }
+    }
+    clearIconBtn.style.display = "block"; // show the clear icons/uploads button
+    
+    // WARNING!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // THE CHATNAME IS NOT UPDATED CORRECTLY. CURRENTLY, THE CHATNAME IS ONLY UPDATED AFTER THE USER INPUTS A PROMPT!
+    // TO ENSURE THE 'currentChatName' VARIABLE IS NOT 'newchat', MAKE SURE A CHAT NAME IS MADE FOR ALL NEW CHATS THE MOMENT THEY
+    // ARE OPENED!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // Later, make it so that the actual upload is only triggered when the user presses submit (i.e. the prompt submit button) or the 'enter' key.
+    // Right now, the file is immediately uploaded to the backend without user intervention required.
+    dataToSend.append('chatname', currentChatName); // send the chatname so the files are attached to the right place
+
+    fileFormData = dataToSend; // save the data to the 'queue' so it can be sent when the user triggers uploadText()
+    
+
+}
+
+
+// Sends a post request with the queued file FormData object (variable is fileFormData). This variable should be null if no files were given by the user or
+// if the given files were already uploaded. Otherwise, (if not null) there are files pending to be uploaded.
+// This function sends those files and clears (sets to null) the fileFormData variable.
+async function uploadQueuedFiles() {
+    const fileIconContainer = document.getElementById("file-upload-icons-container");
+    const clearBtn = document.getElementById("file-icon-clear-button");
+
+    const childrenBackup = [...fileIconContainer.children]; // save array of children nodes in case the upload fails (to restore icons)
+
+    // clear file icons
+    fileIconContainer.replaceChildren(clearBtn); // clear all the icons
+    clearBtn.style.display = "none"; // make clear button invisible again
+
+    if (fileFormData == null) {
+        console.error("File Form Data was null");
+        return;
+    }
+    
+    const dataUrlPath = "/api/user/file/upload/"
+    const response = await fetch(dataUrlPath, {
+        method: 'POST',
+        body: fileFormData
+    });
+
+    if (response.ok) {
+        const data = await response.json();
+        uploadFileUiUpdate(data.status); // updates the UI based on the status that is returned
+
+        // clear queued file form data object once the response fully completes
+        fileFormData = null; 
+
+    }
+    // if the response is not ok, restore the icons
+    else {
+        fileIconContainer.replaceChildren(...childrenBackup);
+        clearBtn.style.display = "block"; // make clear uploads button invisible again
     }
 
 }
+
 
 
 // updates the model selection dropdown menu -- this triggers a get request of available models (i.e. those downloaded on the backend server)
@@ -319,7 +524,6 @@ function resizeTextBox() {
 }
 
 // returns a list of chat history titles/headers (right now, it returns just the file names)
-
 async function getChatHistory() {
     // generate get request to fetch list of chat history files
     const dataUrlPath = '/api/user/chat/history/';
@@ -448,12 +652,38 @@ async function openChat(chatName) {
 
 
 // updates the UI to bring the new chat menu (clears chat content and hides the chat text container and shows the initial greeting)
-function openNewChat() {
+// also sets the currentChatName by sending a request to generate a chatname. For guest users, the chatname = 'guestchat'
+async function openNewChat() {
 
     context = [];
     // for a new chat, empty the current-chat-container except keep the loaded-chat-name element (set the textconteont of the loaded chat to be 'newchat')
     const currentChatContainer = document.getElementById('current-chat-container');
-    currentChatName = 'newchat';
+
+
+    // currentChatName = 'newchat';
+    // send post request for new chatname anytime a new chat is opened
+    const dataUrlPath = "/api/user/chat/request-new-name/"
+    const body = JSON.stringify({
+        "chatName": currentChatName,
+        "model": currentModel
+    });
+    const response = await sendJsonPostRequest(dataUrlPath, body); // send request to generate new chat name
+    
+    if (response.ok) {
+        const data = await response.json();
+        if (data.status == "success") {
+            currentChatName = data.newChatName;
+        }
+        else {
+            currentChatName = 'newchat';
+        }
+    }
+    else {
+        currentChatName = 'newchat';
+    }
+
+
+
     // const loadedChat = document.getElementById('loaded-chat-name');
     // loadedChat.textContent = 'newchat';
     // currentChatContainer.replaceChildren(loadedChat);
@@ -473,6 +703,7 @@ function openNewChat() {
     // keep the same model as selected previously (if none, default to qwen2.5:14b-instruct)
     selectModel(currentModel);
 
+    console.log("current chat name = ", currentChatName);
 }
 
 // toggle the display of the previous chats
@@ -548,6 +779,7 @@ async function sendJsonPostRequest(dataUrlPath, body) {
     return response;
 }
 
+// sends a json post request to the route that terminates the LLM response stream
 async function stopLLMResponse() {
 
     const dataUrlPath = '/api/user/chat/inputs/cancel-response-stream/';
@@ -566,11 +798,67 @@ async function stopLLMResponse() {
 }
 
 
-
+// scrolls the window down based on the current-chat-container height
 function scrollToBottomOfChat() {
     // force page to auto scroll to the bottom on initial load
     const currentChatContainer = document.getElementById("current-chat-container"); // already defined
     window.scrollTo(0, currentChatContainer.scrollHeight); // scroll based on the scroll size of the chat container (the div that holds all the text)
+}
+
+
+function userIsLoggedIn() {
+    const cookies = document.cookie.split("; "); // split all cookies --> cookies = list of strings, each element = one cookie
+
+    for (const cookie of cookies) {
+        const key = cookie.split("=");
+        if (key[0] == "login-status") {
+            // for the login-status cookie, its value is bool indicating whether the user is logged in
+            return key[1] == 'true';
+        }
+    }
+}
+
+// Updates the UI for the file upload based on the input status argument -- Later, refactor UI changes to be made here
+function uploadFileUiUpdate(status) {
+    // if the file upload is a success, display the filename and extension above the input text box
+    // refer to the '/notes/file upload info.png' for more detail
+    if (status == "success") {
+
+    }
+    // if the user is not logged in, show an error stating that the user must be logged in with a link to login
+    // make it a popup menu in the middle of the screen. Make everything else dimmer (cover everything with 50% opacity solid black color).
+    // ensure popup has a close button.
+    else if (status == "failed:not-logged-in") {
+    }
+    // if the upload fails due to unsupported file, show an error indicator that states the attempted files are not acceptable
+    // also list the acceptable file types
+    else if (status == "failed:invalid-file-type") {
+    }
+    // display unknown error occurred + try again
+    else {
+        console.error("Unknown status: ", status);
+    }
+}
+
+// this function clears the fileFormData variable and updates the UI to remove all uploaded files.
+function clearFileUploads() {
+    fileFormData = null;
+    const clearBtn = document.getElementById("file-icon-clear-button");
+    clearBtn.style.display = "none";
+    document.getElementById("file-upload-icons-container").replaceChildren(clearBtn);
+    
+}
+
+function getFileNameExtension(filename) {
+    const dotIndex = filename.lastIndexOf('.');
+    
+    // Error check: No dot found, or dot is at the very end of the name
+    if (dotIndex == -1 || dotIndex == filename.length - 1) {
+        console.error(`Failed to locate file extension for: "${filename}"`);
+        return '';
+    }
+    
+    return filename.substring(dotIndex + 1);
 }
 
 // NO LONGER USED -- CONVERSION DONE IN PYTHON

@@ -34,11 +34,11 @@ def validateLogin():
                 response.set_cookie("login-status", 'true', samesite='Lax')
                 return response, 200
             
-        # dummy hash check to ensure the program takes roughly the same amount of time to process an invalid username
-        # as an invalid password
-        else:
-            dummy_hash = "scrypt:32768:8:1$dummy$d092d6b38c29b47e24446e1f0e42a9d6"
-            check_password_hash(pwhash=dummy_hash, password='dummy-password')
+        # # dummy hash check to ensure the program takes roughly the same amount of time to process an invalid username
+        # # as an invalid password
+        # else:
+        #     dummy_hash = "scrypt:32768:8:1$dummy$d092d6b38c29b47e24446e1f0e42a9d6"
+        #     check_password_hash(pwhash=dummy_hash, password='dummy-password')
 
         # if the user does not exist or the password does not match, send the following failed response
         response = jsonify({"status": 'error-invalid-login'})

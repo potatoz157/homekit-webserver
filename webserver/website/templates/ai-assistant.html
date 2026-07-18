@@ -4,12 +4,18 @@
 <head>
     <title>AI Assistant Page</title>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="/static/css/ai-assistant.css">
 
+    <!-- this path is for the flask app -->
+        <link rel="stylesheet" href="/static/css/ai-assistant.css">
+        <!-- <link rel="shortcut icon" href="/static/icons/ai-assistant.ico"> -->
 
-    <!-- if the scripts are defined before the elements they access, you get NULL errors -->
-    <!-- use the keyword 'defer' to prevent this NULL error -->
-    <script src="/static/js/ai-assistant.js" defer></script>
+        <!-- if the scripts are defined before the elements they access, you get NULL errors -->
+        <!-- use the keyword 'defer' to prevent this NULL error -->
+        <script src="/static/js/ai-assistant.js" defer></script>
+
+    <!-- this path is for debugging locally -->
+        <!-- <link rel="stylesheet" href="../static/css/ai-assistant.css"> -->
+        <!-- <script src="../static/js/ai-assistant.js" defer></script> -->
 
     <!-- define external scripts -->
     <!-- <script src="/static/js/external/marked.min.js"></script> -->
@@ -31,6 +37,11 @@
 
 <body>
 
+    <!-- define the overlay that is displayed when a file is being dragged into the page -->
+    <div id="overlay" class="overlay"></div>
+
+
+
     <div class="side-panel">
         <!-- Side Panel -->
 
@@ -51,7 +62,6 @@
             <!-- <button class="side-panel-buttons" onclick="openFileGallery()">Files</button> -->
         </div>
 
-
     </div>
 
     <div class="top-panel">
@@ -67,7 +77,8 @@
         </div>
     </div>
     
-    <div class="main-panel" >
+    <!-- also define the main-panel to act as the file dropbox location -->
+    <div class="main-panel" id="dropbox">
 
         <!-- this container holds all of the user and LLM text -->
         <div id="current-chat-container" class="current-chat-container">
@@ -77,6 +88,16 @@
         <h1 id="initial-greeting" style="font-family: Arial, Helvetica, sans-serif; font-weight: normal; text-align: center;">Whats on your mind?</h1>
 
         <div class="input-box-container">
+
+            <!-- this holds the 'TXT', 'PDF', etc. icons when a user uploads files that are yet to be sent -->
+            <div id="file-upload-icons-container" class="file-upload-icons-container">
+                <!-- The following 3 paragaph tags were used for testing/development -->
+                <!-- <p class="file-icon">TXT</p>
+                <p class="file-icon">TXT</p>
+                <p class="file-icon">PDF</p> -->
+                <button id="file-icon-clear-button" class="file-icon" style="display:none" onclick="clearFileUploads()">X</button>
+            </div>
+
             <!-- textarea goes first into the input box container -->
             <textarea id="input-box" class="input-box" placeholder="Ask anything" rows="1"></textarea>
 
@@ -85,9 +106,20 @@
                 <!-- by separating class with whitespace, we can apply multiple classes to a single element -->
                 <!-- the following buttons inherit styles from both control-button and their respective other classes -->
 
+                <!-- agentic/chatbot mode -->
+                <div id="agentic-mode-toggle-container" class="agentic-mode-toggle-container">
+                    <p class="agentic-mode-header">Agent Mode</p>
+                    <button id="agentic-mode-button" class="agentic-mode-button" onclick="updateSlider()">
+                        <input type="checkbox" id="agentic-mode-toggle-checkbox" class="agentic-mode-toggle-checkbox">
+                    </button>
+                </div>
+
+
                 <!-- file upload -->
-                <input id="upload-file-input" type="file" class="control-button upload-file" style="display: none;" onchange="uploadFile(this)">
-                <button id="upload-file-btn" class="control-button upload-file" onclick="triggerFilePicker()">+</button>
+                <!-- <form> -->
+                <input id="upload-file-input" type="file" class="control-button upload-file" style="display: none;" onchange="prepareUploadFile(this)" multiple>
+                <button id="upload-file-btn" type="submit" class="control-button upload-file" onclick="triggerFilePicker()">+</button>
+                <!-- </form> --> 
 
                 <!-- model select -->
                 <div class="model-select-container">
@@ -104,7 +136,6 @@
                         <div class="model-dropdown-item" onclick="selectModel('mistral:7b')">mistral:7b</div>
                         <div class="model-dropdown-item" onclick="selectModel('phi3:mini')">phi3:mini</div> -->
                     </div>
-
                 </div>
 
                 <!-- text upload -->
@@ -121,7 +152,5 @@
 </body>
 
 </html>
-
-
 
 

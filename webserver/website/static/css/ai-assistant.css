@@ -21,6 +21,34 @@ body {
 }
 
 
+
+.overlay {
+    display: none;
+
+    height: 100vh;
+    width: 100vw;
+
+    /* lock overlay in place -- prevents it from moving for example if you scroll */
+    position: fixed;
+
+    background-color: black;
+    opacity: 50%;
+
+    /* this makes the overlay ignore the mouse entirely -- also allows the mouse to interact with stuff behind the overlay uninhibited */
+    pointer-events: none;
+
+    /* define this class to be the top-most element */
+    z-index: 9999;
+}
+
+
+
+/* this does not currently work -- implement in js instead */
+/* #dropbox.dragenter {
+    background-color: red;
+} */
+
+
 /* ==================================================================================== */
 /* ==================================== SIDE PANEL ==================================== */
 /* ==================================================================================== */
@@ -139,6 +167,7 @@ body {
     margin-left: 10px;
     padding: 15%;
 
+    text-decoration: none;
 
     width: auto;
     height: auto;
@@ -195,14 +224,16 @@ body {
 
     /* display: flex; */
     display: grid;
-    grid-template-rows: minmax(56px, max-content) auto;
+    position: relative;
+    /* grid-template-rows: minmax(56px, max-content) auto; */
 
     gap: 10px;
 
     /* grid-template-columns: 4vw 42vw 4vw; */
     /* grid-template-rows: 3vh 4vh; */
 
-    width: 75%;
+    width: 60vw;
+    /* width: 75%; */
     /* height: 7vh;  */
 
     min-height: 50px;
@@ -213,12 +244,69 @@ body {
     background-color: #212121;
 }
 
+/* this holds the 'TXT', 'PDF', etc. icons when a user uploads files that are yet to be sent */
+.file-upload-icons-container {
+
+    display: flex;
+    flex-direction: row;
+
+    /* define absolute position so that we can have partial overlap of icons with the textarea */
+    position: absolute;
+
+    /* define gap between file upload icons */
+    gap: 5px;
+
+    /* define the position of the icon container relative to the input box container  */
+    top: -15px;
+    left: 15px;
+
+
+    /* grid-row: 1; */
+    
+    width: 100%;
+    height: min-content;
+
+    background-color: transparent;
+
+}
+
+
+.file-icon {
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: 600;
+
+    padding: 5px;
+    margin: 0;
+    /* padding: 10px 5px;
+    margin-bottom: 10px;
+    margin-top: -8px;
+    margin-left: 5px;
+    margin-right: 0; */
+
+    text-align: center;
+    justify-content: center;
+
+
+
+    /* dont allow user to highlight the file icons */
+    user-select: none;
+
+    border-radius: 5px;
+
+    background-color: rgb(135, 139, 120);
+}
+
+
 .input-box {
 
     margin: 20px;
     padding-right: 15px;
 
+
+    /* width: calc(100% - 20px); */
     width: 92%;
+    height: auto;
     max-height: 300px;
     overflow-y: auto;
 
@@ -401,13 +489,77 @@ body {
     margin-left: 10%;
     margin-right: 10%;
 
-    width: 75%;
+    width: 75vw;
+    /* width: 75%; */
     height: 100%;
 
     background-color: transparent;
     color: white;
 
 
+}
+
+.agentic-mode-toggle-container {
+
+    align-items: center;     /* Center vertically */
+
+    display: flex;
+
+    border-radius: 10px;
+
+    flex-direction: column;
+
+    background-color: #3f3f3f;
+
+}
+
+.agentic-mode-header {
+
+    padding: 0;
+    margin: 4px;
+
+    font-family: Arial, Helvetica, sans-serif;
+    /* font-weight: 600; */
+    font-size: small;
+
+}
+
+.agentic-mode-button {
+
+    display: flex;
+    position: relative;
+
+    background-color: lightgray;
+    color: white;
+    padding: 0;
+    /* padding: 10px 20px; */
+    border-radius: 30px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+
+    width: 50px;
+    height: 20px;
+
+}
+
+.agentic-mode-toggle-checkbox {
+    /* position: absolute; */
+    align-self: center;
+    appearance: none;
+
+    top: 0;
+    
+    margin: 0;
+    padding: 0;
+
+    /* margin-right: auto; */
+    /* margin-left: auto; */
+
+    width: 16px;
+    height: 16px;
+
+    border-radius: 100%;
+    background-color: #3f3f3f;
 }
 
 .chat-text-style {
