@@ -1,5 +1,4 @@
-webserver/__pycache__
-webserver/website/__pycache__
+__pycache__/
 webserver/.venv
 webserver/website/user-data
 webserver/notes/cloudChat.py

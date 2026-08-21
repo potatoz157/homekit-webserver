@@ -3,6 +3,7 @@ from typing import List, Optional
 from sqlalchemy import create_engine, ForeignKey, String, Text, BLOB, Engine, text, event, Column, Integer, Table, MetaData
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
+from pathlib import Path
 
 class Base(DeclarativeBase):
     pass
@@ -167,7 +168,11 @@ def init_db() -> Engine:
     # dropAll() # this is for testing only
 
     # get absolute path of this python file then route it to /user-data/myDatabase.db
-    DB_PATH = os.path.join(os.path.dirname(__file__), databasePath) 
+
+    # database path is 'webserver/website/user-data/myDatabase.db'
+    # this file is located at 'webserver/website/src/databaseTables.py
+    DB_PATH = Path(__file__).parent.parent / "user-data" / "myDatabase.db" # go to /website/ dir then route to database
+    # DB_PATH = os.path.join(os.path.dirname(__file__), databasePath) # OLD RELATIVE DIRECTORY
     
     engine = create_engine(f"sqlite:///{DB_PATH}", echo=False) # initiate the engine using sqlite (should suffice for low user count)
 
