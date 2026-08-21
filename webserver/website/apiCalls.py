@@ -128,13 +128,19 @@ def handleUserInputPrompt():
 
 
             # Capture the aggregate results for database storage
-            if data_chunk.get('ai_response'):
-                assert isinstance(data_chunk['ai_response'], str)
-                final_response += data_chunk['ai_response']
-            if data_chunk.get('ai_thinking'):
-                assert isinstance(data_chunk['ai_thinking'], str)
-                final_thinking += data_chunk['ai_thinking']
+            if not data_chunk.get('done'):
+                if data_chunk.get('ai_response'):
+                    assert isinstance(data_chunk['ai_response'], str)
+                    final_response += data_chunk['ai_response']
+                if data_chunk.get('ai_thinking'):
+                    assert isinstance(data_chunk['ai_thinking'], str)
+                    final_thinking += data_chunk['ai_thinking']
 
+
+
+        # append the user input to the context history prior to appending the LLM tool call decision
+        context.append({"role": "user", "content": user_message})
+        
         # if the last chunk's tool_calls attribute contains anything, assemble the tool_call message and generate another LLM response using the tool outputs
         assert lastChunk
         if allowAgent and lastChunk.get('tool_calls'):
@@ -155,6 +161,7 @@ def handleUserInputPrompt():
             final_thinking = ""
 
             # generate a new LLM response by feeding it the new context that has the tool calls and outputs -- the response to the tool outputs is what streams to the user
+            # the context at this point = [old history, {user input}, {tool call decision}]
             trip2_generator = generateLLMResponse(user_input="", model=model, context=context, user_id=user_id, agent_mode=allowAgent)
 
             for chunk in trip2_generator:
@@ -167,12 +174,13 @@ def handleUserInputPrompt():
                 yield f"data: {json.dumps(format_data_chunk)}\n\n"
 
                 # Capture the aggregate results for database storage
-                if chunk.get('ai_response'):
-                    assert isinstance(chunk['ai_response'], str)
-                    final_response += chunk['ai_response']
-                if chunk.get('ai_thinking'):
-                    assert isinstance(chunk['ai_thinking'], str)
-                    final_thinking += chunk['ai_thinking']
+                if not chunk.get('done'):
+                    if chunk.get('ai_response'):
+                        assert isinstance(chunk['ai_response'], str)
+                        final_response += chunk['ai_response']
+                    if chunk.get('ai_thinking'):
+                        assert isinstance(chunk['ai_thinking'], str)
+                        final_thinking += chunk['ai_thinking']
 
         # save the final answer (LLM response to the tool outputs) to the database
         if chat_id:
@@ -480,6 +488,20 @@ def createNewChatName():
     return jsonify({
         "status": "failed"
     }), 400
+
+
+def queryChatFiles(usernmae : str, chatname : str, query : str) -> list[str]:
+    """
+    Based on the user input query, the top 'K' matching text chunks are fetched from the database and returned (fed to the LLM).
+    This function merely fetches the K text chunks and returns them.
+    """
+
+    k_chunks = []
+
+
+
+
+    return k_chunks
 
 
 

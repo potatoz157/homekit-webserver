@@ -1,4 +1,5 @@
-import json, os, cv2, mistune, re
+# import json, os, cv2, mistune, re
+import importlib, inspect
 from collections.abc import Generator
 from mistune.plugins.math import math
 # from cv2_enumerate_cameras import enumerate_cameras
@@ -16,7 +17,8 @@ from globals import getActiveUsers, getDictLock
 # 1. Import the tool (function) here
 # 2. Add the tool/function name to the tools list fed into the ollama.chat() function
 # 3. Add another elif to handle the tool function output and append it to the tool_outputs list
-from tools import get_time, get_date, add
+# from tools import get_time, get_date, add, getDailyMsg, read_pdf, read_url
+import tools # we dynamically call the function based on the tool call of the LLM (using getattr(tools, func_name)) 
 
 
 
@@ -43,18 +45,27 @@ def openOllama():
 def getModelNames() -> list[str]:
     import ollama
 
+    # to disable all models except qwen2.5:14b-instruct, set this to true
+    disableList = False
+
+
     openOllama() # ensure ollama process is running
 
-    # # temporarily disable all models except qwen2.5:14b-instruct
-    # list = ollama.list()
-    # models = []
+    # if the full list is disabled, return the single, hardcoded model
+    if (disableList):
+        models = ['qwen2.5:14b-instruct']
+        return models
+    
+    # otherwise, dynamically fetch all available models
+    list = ollama.list()
+    models = []
 
-    # for modelInfo in list.get('models', []):
-    #     models.append(modelInfo.get('model', []))
-    # return models
-
-    models = ['qwen2.5:14b-instruct']
+    for modelInfo in list.get('models', []):
+        modelName = modelInfo.get('model', [])
+        if 'cloud' not in modelName and 'embed' not in modelName: # do not provide cloud or embed models (implementation does not allow for cloud model use so for -- fix later maybe)
+            models.append(modelName)
     return models
+
 
 
 # def generateLLMResponse(user_input : str, model : str, context: list) -> tuple[str, str, int]:
@@ -85,8 +96,48 @@ def generateLLMResponse(user_input : str, model : str, context: list, user_id : 
 
     """
 
+    # Define system prompt:
+    # For adding skills, add the skill name here, the LLM will use a tool to fetch the associate skill markdown file
+    # Add a small descriptor telling the LLM when to use the skill.
+    # Inside the markdown file, there should be a list of instructions to tell the LLM how to behave, example:
+    # .md file:
+        # ---
+        # name: short-kebab-case-name
+        # description: This skill should be used when ...
+        # ---
+
+        # # Workflow
+        # Step-by-step instructions for the AI.
+
+        # # Decision Rules
+        # What the AI should do in edge cases.
+
+        # # Guardrails
+        # Things the AI must avoid at all costs.
+
+        # # Output Requirements
+        # Formatting specifics (e.g., Markdown, JSON, specific coding standards).
+
+        # # Verification
+        # How to test or double-check the final result.
+    # The literal headers can be customized, but be consistend across every skill markdown file.
+    # LATER, Automate the system prompt generation by iteratively reading all the available skill files, parsing the yaml frontmatter (delimited by '---') to 
+    # fetch the skill names and descriptions so that the system prompt does not need to manually be defined.
+    system_prompt = """
+        You are an AI assistant with access to specialized skills.
+
+        Available Skills:
+        - resume-tailoring: Use this when the user wants to modify or create a resume.
+        
+        STRICT INSTRUCTION FOLLOW-THROUGH RULES:
+        1. MANDATORY TOOL EXECUTION: Whenever a user asks for information, instructions, or details regarding a skill, you MUST execute the `get_skill_details` tool first. Do NOT guess content, tell the user if the tool is not accessible.
+        2. RAW OUTPUT: Prioritize raw outputs for inconsistent data. Do NOT summarize, redact, paraphrase, or apologize for any apparent mismatch between the file content and the skill name.
+        3. NO EAGER CORRECTION: Do NOT attempt to self correct. Tell the user if tool access is not available or information is missing!
+        """ 
+
+
     messages = [{
-        "role":  "system", "content": "Be concise. Respond in english only unless prompted." # optional, (hard-coded) high-priority instruction
+        "role":  "system", "content": system_prompt
     }]
 
 
@@ -113,15 +164,23 @@ def generateLLMResponse(user_input : str, model : str, context: list, user_id : 
         # ...
     # )
     
-    tools = []
+    llm_tools = []
     if agent_mode:
-        tools = [get_time, get_date, add]   # to add more tools, append to the list of tools HERE
-        
+        tools_script = importlib.import_module('tools') # import dynamically
+        # for every member in the tools script that is a function:
+        for name, func in inspect.getmembers(tools_script, inspect.isfunction):
+            # Check if the function was written inside tools.py (and not imported into it)
+            is_defined_in_tools = func.__module__ == tools_script.__name__
+
+            if is_defined_in_tools: # append to the list of llm tools
+                llm_tools.append(func)
+        # manual/hardcoded tool definitions
+        # llm_tools = [get_time, get_date, add, getDailyMsg, read_pdf, read_url]
 
     chatResponse = chat(
         model=model,
         messages=messages,
-        tools=tools, 
+        tools=llm_tools, 
         options={
             'num_ctx':8192
         },
@@ -182,14 +241,28 @@ def generateLLMResponse(user_input : str, model : str, context: list, user_id : 
     tool_outputs = []
     if tool_calls:
         for call in tool_calls:
-            if call.function.name == 'get_time':
-                result = get_time(**call.function.arguments)
-            elif call.function.name == 'get_date':
-                result = get_date(**call.function.arguments)
-            elif call.function.name == 'add':
-                result = add(**call.function.arguments)
+            # if call.function.name == 'get_time':
+            #     result = get_time(**call.function.arguments)
+            # elif call.function.name == 'get_date':
+            #     result = get_date(**call.function.arguments)
+            # elif call.function.name == 'add':
+            #     result = add(**call.function.arguments)
+            # elif call.function.name == 'getDailyMsg':
+            #     result = getDailyMsg(**call.function.arguments)
+            # elif call.function.name == 'read_pdf':
+            #     result = read_pdf(**call.function.arguments)
+            # elif call.function.name == 'read_url':
+            #     result = read_url(**call.function.arguments)
+            # else:
+            #     result = 'unknown tool'
+
+            func = getattr(tools, call.function.name, None) # this fetches the function handle using its name: tools.function_name, where tools is a python file (tools.py)
+            if func:
+                result = func(**call.function.arguments)
             else:
+                print(f"ERROR: Tool '{call.function.name}'")
                 result = 'unknown tool'
+
             tool_outputs.append({
                 'role': 'tool',
                 'tool_name': call.function.name,

@@ -48,6 +48,31 @@ File Input Analysis:
             - much more compute and expensive, safest/most accurate, but might take much longer (more tokens)
 
 
+Fun Ideas:
+ - Context window memory map graph/visualization --> a real-time visual block diagram showing how much of the context window is filled upfront
+     - Can be color coded, for example: blue for system prompt, green for RAG chunks, purple for tool calls/outputs, yellow for chat history
+     - maybe add a enable/disable button to each memory chunk to disable specific a RAG chunk or tool output. Maybe even include a 'pin' option 
+     to lock the memory so its never pushed out of the history (when context gets full).
+ 
+ - Tool Execution Viewer --> a window into how the LLM calls the tool along with the tool output
+     - Basically, when a model calls a tool, pause the chat stream and render an 'inspection card' right in the chat flow. Show the raw JSON payload the model 
+     generated, a status spinner and th eoutput data the model received back.
+     - Maybe even include a 'pause before execution' toggle so the user can manually review the data (and possibly edit the arguments? -- security risk though) before the model runs the tools
+
+ - RAG Source Highlighting --> When LLM generates results based on text chunk(s) from a vector search have a [1], [2], ..., footnote at the end of the sentence
+    - To go beyond, include a highlight animation. When the user hovers over the citation number, the corresponding source chunk 
+    should appear in a collapsible sidebar with the file name, the full text chunk and maybe line number (starting line number for the chunk?).
+        - You can make the sidebar appear only on clicks too instead of hovering (prevents accidental sidebar opening).
+
+ - Quick Search App --> instead of making users open the full webpage to use the chatbots, make a system-wide or in-app global hotkey that summons a floating search bar anywhere on the screen
+    - Users can put prompts into the search bar and the results will stream in the tiny popover 'card'
+
+ - Inline Commands
+    - User can type /summarize which attaches a specific prompt macro, or /clear or /export to trigger utility actions. Possibilities are endless.
+
+ - Export button
+    - Single button that converts the entire conversation into formatted markdown text that can easily be copied or downloaded. 
+
 TODO:
  - change database scheme from sqlite to postgresql! --> this will make it easier to store vector embeddings (requires simple extension rather than full custom workaround and more scalable)
  - Implement API request rate limits on a user bases, e.g. 10 requests/min per api per user

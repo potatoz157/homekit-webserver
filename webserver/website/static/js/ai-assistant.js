@@ -6,7 +6,7 @@ let agentMode = false;
 const contextSize = 40; // limit number of total messages to 40 (one msg is a user input or an llm output) -- total 20 user inputs + 20 llm outputs
 
 // this will act as a 'queue' for the FormData object that is to be sent (when a user uploads files) with the next 
-// user prompt (when the user presses 'enter' or submit text button, prompt CAN be empty)
+// user prompt (when the user presses 'enter' or submit text button, prompt text CAN be empty)
 let fileFormData = null;
 
 const dropbox = document.getElementById("dropbox");
@@ -299,7 +299,7 @@ async function uploadText() {
                     continue;
                 }
 
-                // 2. Accumulate response or thinking streams
+                // 2. Accumulate response and thinking streams
                 if (!data.done) {
                     if (data.ai_response) {
                         full_ai_response += data.ai_response;
