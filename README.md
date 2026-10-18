@@ -1,5 +1,5 @@
 # homekit-webserver
-Contains the software for a home webserver. Will feature options to access locally hosted LLMs', a security camera manager, and other TBD features.
+Contains the software for a home webserver (Windows only for now). Will feature options to access locally hosted LLMs', a security camera manager, and other TBD features.
 
 Uses flask to host the local webserver and ollama to access installed models. **This is still a work in progress!**
 
@@ -31,7 +31,7 @@ Windows blocks scripts by default. Choose an option below to allow the environme
   ```powershell
   Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
   ```
-* **Option B: Permanent** - Unlocks scripts for your entire Windows account.
+* **Option B: Permanent** - Unlocks scripts only for the currently logged in user.
   ```powershell
   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
   ```
