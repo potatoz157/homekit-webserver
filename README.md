@@ -1,13 +1,13 @@
 # homekit-webserver
 Contains the software for a home webserver. Will feature options to access locally hosted LLMs', a security camera manager, and other TBD features.
 
-Uses flask to host the local webserver and ollama to access installed models.
+Uses flask to host the local webserver and ollama to access installed models. **This is still a work in progress!**
 
 The webserver folder contains the main project folder, 'website', along with some testing code presented in 'testingAndLearning'
 
 The chat.py file is a script that provides a command line interface for using a chatbot.
 
-See requirements.txt for the list of ncessary python libraries.
+See requirements.txt for the list of necessary python libraries.
 
 ## How to Setup and Run (Windows)
 
